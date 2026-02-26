@@ -102,6 +102,15 @@ export class GameStore {
     return this.toRoomView(room);
   }
 
+  getRoomByCode(code: string): RoomResponse['room'] {
+    for (const room of this.rooms.values()) {
+      if (room.code === code) {
+        return this.toRoomView(room);
+      }
+    }
+    throw new StoreError(404, `Room not found with code: ${code}`);
+  }
+
   updateRoomIntegrationMetadata(
     roomId: string,
     patch: {

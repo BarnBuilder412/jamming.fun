@@ -71,6 +71,16 @@ export function registerApiRoutes(app: FastifyInstance, services: RuntimeService
     }
   });
 
+  app.get('/api/v1/rooms/code/:code', async (request, reply) => {
+    try {
+      const params = parseOrThrow(z.object({ code: z.string().min(1) }), request.params);
+      const room = services.store.getRoomByCode(params.code);
+      return reply.send(roomResponseSchema.parse({ room }));
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
   app.post('/api/v1/rooms/:roomId/rounds/start', async (request, reply) => {
     try {
       const params = parseOrThrow(roomParamsSchema, request.params);

@@ -66,6 +66,9 @@ export const apiClient = {
   getRoom(roomId: string) {
     return requestJson<RoomResponse>(`/rooms/${roomId}`);
   },
+  getRoomByCode(code: string) {
+    return requestJson<RoomResponse>(`/rooms/code/${encodeURIComponent(code)}`);
+  },
   startRound(roomId: string, input: StartRoundRequest) {
     return requestJson<StartRoundResponse>(`/rooms/${roomId}/rounds/start`, {
       method: 'POST',
