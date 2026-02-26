@@ -8,11 +8,12 @@ export function registerHealthRoutes(app: FastifyInstance, config: AppConfig, se
     service: 'jamming-api',
     dbReady: services.dbReady,
     solanaCluster: config.solanaCluster,
+    solanaRpcUrl: config.solanaRpcUrl,
     featureFlags: config.featureFlags,
     integrations: {
-      magicBlock: services.integrations.magicBlock ? 'configured' : 'missing',
-      audius: services.integrations.audius ? 'configured' : 'missing',
-      blinks: services.integrations.blinks ? 'configured' : 'missing',
+      magicBlock: services.integrations.magicBlock.getStatus(),
+      audius: services.integrations.audius.getStatus(),
+      blinks: services.integrations.blinks.getStatus(),
     },
   }));
 }

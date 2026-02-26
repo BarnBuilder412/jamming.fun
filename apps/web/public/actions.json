@@ -1,0 +1,8 @@
+{
+  "rules": [
+    {
+      "pathPattern": "/*",
+      "apiPath": "http://localhost:3001/actions"
+    }
+  ]
+}

@@ -135,7 +135,24 @@ export const apiClient = {
   },
   health() {
     return fetch(webEnv.apiBaseUrl.replace(/\/api\/v1\/?$/, '/healthz')).then(
-      async (response) => (await response.json()) as { ok: boolean; dbReady: boolean; featureFlags: Record<string, boolean> },
+      async (response) =>
+        (await response.json()) as {
+          ok: boolean;
+          dbReady: boolean;
+          featureFlags: Record<string, boolean>;
+          integrations?: Record<
+            string,
+            {
+              provider?: string;
+              enabled?: boolean;
+              ready?: boolean;
+              mode?: string;
+              details?: string;
+              lastReference?: string;
+              lastError?: string;
+            }
+          >;
+        },
     );
   },
 };

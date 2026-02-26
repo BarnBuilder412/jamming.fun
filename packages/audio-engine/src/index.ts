@@ -63,10 +63,12 @@ export function getActiveStepsForTrack(pattern: PatternV1, trackId: PatternV1['t
   return track.steps.flatMap((step, index) => (step.active ? [index] : []));
 }
 
-export type DrumEngineState = 'unsupported' | 'locked' | 'ready' | 'closed';
+export type DrumEngineState = 'unsupported' | 'locked' | 'loading' | 'ready' | 'closed' | 'error';
+export type DrumEngineOutputMode = 'none' | 'synth' | 'samples';
 
 export interface DrumEngine {
   getState(): DrumEngineState;
+  getOutputMode(): DrumEngineOutputMode;
   unlock(): Promise<DrumEngineState>;
   setMasterGain(value: number): void;
   triggerTrack(trackId: TrackId, velocity?: number): void;
@@ -74,7 +76,34 @@ export interface DrumEngine {
   dispose(): void;
 }
 
+export type WebAudioDrumEngineOptions = {
+  sampleBaseUrl?: string;
+  sampleManifest?: Partial<Record<TrackId, string>>;
+};
+
 type BrowserAudioContext = AudioContext;
+
+type SampleLoadState = 'idle' | 'loading' | 'ready' | 'failed';
+
+type TrackSampleMap = Map<TrackId, AudioBuffer>;
+
+const DEFAULT_SAMPLE_BASE_URL = '/samples/hydrogen-lite';
+
+const DEFAULT_SAMPLE_MANIFEST: Record<TrackId, string> = {
+  kick: 'kick.wav',
+  snare: 'snare.wav',
+  hat_closed: 'hat_closed.wav',
+  hat_open: 'hat_open.wav',
+  clap: 'clap.wav',
+};
+
+const TRACK_SAMPLE_GAIN: Record<TrackId, number> = {
+  kick: 0.95,
+  snare: 0.88,
+  hat_closed: 0.52,
+  hat_open: 0.48,
+  clap: 0.72,
+};
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -82,6 +111,10 @@ function clamp(value: number, min: number, max: number): number {
 
 function hasAudioContext(): boolean {
   return typeof window !== 'undefined' && typeof window.AudioContext !== 'undefined';
+}
+
+function safeCurrentTime(context: BrowserAudioContext): number {
+  return Number.isFinite(context.currentTime) ? context.currentTime : 0;
 }
 
 function createNoiseBuffer(context: BrowserAudioContext): AudioBuffer {
@@ -92,10 +125,6 @@ function createNoiseBuffer(context: BrowserAudioContext): AudioBuffer {
     channel[index] = Math.random() * 2 - 1;
   }
   return buffer;
-}
-
-function safeCurrentTime(context: BrowserAudioContext): number {
-  return Number.isFinite(context.currentTime) ? context.currentTime : 0;
 }
 
 function triggerKick(context: BrowserAudioContext, destination: AudioNode, intensity: number): void {
@@ -203,13 +232,39 @@ function triggerClap(context: BrowserAudioContext, destination: AudioNode, noise
   }
 }
 
+async function fetchAndDecodeSample(
+  context: BrowserAudioContext,
+  url: string,
+): Promise<AudioBuffer> {
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`Failed to load sample ${url} (${response.status})`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return context.decodeAudioData(arrayBuffer);
+}
+
 class WebAudioDrumEngine implements DrumEngine {
   private readonly context: BrowserAudioContext | null;
   private readonly master: GainNode | null;
   private readonly noiseBuffer: AudioBuffer | null;
   private state: DrumEngineState;
+  private outputMode: DrumEngineOutputMode = 'none';
+  private sampleLoadState: SampleLoadState = 'idle';
+  private readonly sampleBuffers: TrackSampleMap = new Map();
+  private sampleLoadError?: string;
+  private readonly sampleBaseUrl: string;
+  private readonly sampleManifest: Record<TrackId, string>;
+  private openHatSampleSource: AudioBufferSourceNode | null = null;
+  private openHatSampleGain: GainNode | null = null;
 
-  constructor() {
+  constructor(options?: WebAudioDrumEngineOptions) {
+    this.sampleBaseUrl = (options?.sampleBaseUrl ?? DEFAULT_SAMPLE_BASE_URL).replace(/\/$/, '');
+    this.sampleManifest = {
+      ...DEFAULT_SAMPLE_MANIFEST,
+      ...(options?.sampleManifest ?? {}),
+    };
+
     if (!hasAudioContext()) {
       this.context = null;
       this.master = null;
@@ -223,7 +278,49 @@ class WebAudioDrumEngine implements DrumEngine {
     this.master.gain.value = 0.75;
     this.master.connect(this.context.destination);
     this.noiseBuffer = createNoiseBuffer(this.context);
-    this.state = this.context.state === 'running' ? 'ready' : 'locked';
+    this.outputMode = 'synth';
+    this.state = this.context.state === 'running' ? 'loading' : 'locked';
+    void this.loadSamples();
+  }
+
+  private async loadSamples(): Promise<void> {
+    if (!this.context) {
+      return;
+    }
+
+    this.sampleLoadState = 'loading';
+    const entries = Object.entries(this.sampleManifest) as Array<[TrackId, string]>;
+    try {
+      const decoded = await Promise.all(
+        entries.map(async ([trackId, fileName]) => {
+          const url = `${this.sampleBaseUrl}/${fileName}`;
+          const buffer = await fetchAndDecodeSample(this.context!, url);
+          return [trackId, buffer] as const;
+        }),
+      );
+
+      this.sampleBuffers.clear();
+      for (const [trackId, buffer] of decoded) {
+        this.sampleBuffers.set(trackId, buffer);
+      }
+
+      if (this.sampleBuffers.size === entries.length) {
+        this.sampleLoadState = 'ready';
+        this.outputMode = 'samples';
+      } else {
+        this.sampleLoadState = 'failed';
+        this.outputMode = 'synth';
+        this.sampleLoadError = 'Partial sample load; using synth fallback';
+      }
+    } catch (error) {
+      this.sampleLoadState = 'failed';
+      this.outputMode = 'synth';
+      this.sampleLoadError = error instanceof Error ? error.message : 'Sample load failed';
+      // Keep synth mode available for reliability.
+      console.warn('[audio-engine] sample load failed, using synth fallback', error);
+    }
+
+    this.state = this.getState();
   }
 
   getState(): DrumEngineState {
@@ -233,13 +330,30 @@ class WebAudioDrumEngine implements DrumEngine {
 
     if (this.context.state === 'closed') {
       this.state = 'closed';
-    } else if (this.context.state === 'running') {
-      this.state = 'ready';
-    } else if (this.state !== 'closed') {
-      this.state = 'locked';
+      return this.state;
     }
 
+    if (this.context.state !== 'running') {
+      this.state = 'locked';
+      return this.state;
+    }
+
+    if (this.sampleLoadState === 'loading' || this.sampleLoadState === 'idle') {
+      this.state = 'loading';
+      return this.state;
+    }
+
+    if (this.sampleLoadState === 'failed' && this.outputMode === 'none') {
+      this.state = 'error';
+      return this.state;
+    }
+
+    this.state = 'ready';
     return this.state;
+  }
+
+  getOutputMode(): DrumEngineOutputMode {
+    return this.outputMode;
   }
 
   async unlock(): Promise<DrumEngineState> {
@@ -263,16 +377,67 @@ class WebAudioDrumEngine implements DrumEngine {
     this.master.gain.setTargetAtTime(clamped, safeCurrentTime(this.context), 0.01);
   }
 
-  triggerTrack(trackId: TrackId, velocity = 100): void {
+  private chokeOpenHat(): void {
+    const source = this.openHatSampleSource;
+    const gain = this.openHatSampleGain;
+    if (!source || !gain || !this.context) {
+      return;
+    }
+
+    const now = safeCurrentTime(this.context);
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.02);
+    try {
+      source.stop(now + 0.03);
+    } catch {
+      // ignore source lifecycle errors
+    }
+    this.openHatSampleSource = null;
+    this.openHatSampleGain = null;
+  }
+
+  private triggerSample(trackId: TrackId, intensity: number): boolean {
+    if (!this.context || !this.master || this.outputMode !== 'samples') {
+      return false;
+    }
+
+    const buffer = this.sampleBuffers.get(trackId);
+    if (!buffer) {
+      return false;
+    }
+
+    if (trackId === 'hat_closed') {
+      this.chokeOpenHat();
+    }
+
+    const source = this.context.createBufferSource();
+    source.buffer = buffer;
+    const gain = this.context.createGain();
+    const now = safeCurrentTime(this.context);
+    const trackGain = TRACK_SAMPLE_GAIN[trackId] ?? 0.75;
+    gain.gain.setValueAtTime(clamp(intensity * trackGain, 0, 1.2), now);
+    source.connect(gain).connect(this.master);
+    source.start(now);
+
+    if (trackId === 'hat_open') {
+      this.openHatSampleSource = source;
+      this.openHatSampleGain = gain;
+      source.onended = () => {
+        if (this.openHatSampleSource === source) {
+          this.openHatSampleSource = null;
+          this.openHatSampleGain = null;
+        }
+      };
+    }
+
+    return true;
+  }
+
+  private triggerSynth(trackId: TrackId, intensity: number): void {
     if (!this.context || !this.master || !this.noiseBuffer) {
       return;
     }
-
-    if (this.getState() !== 'ready') {
-      return;
-    }
-
-    const intensity = clamp(velocity / 127, 0.12, 1);
 
     switch (trackId) {
       case 'kick':
@@ -293,6 +458,23 @@ class WebAudioDrumEngine implements DrumEngine {
     }
   }
 
+  triggerTrack(trackId: TrackId, velocity = 100): void {
+    if (!this.context || !this.master || !this.noiseBuffer) {
+      return;
+    }
+
+    if (this.getState() !== 'ready') {
+      return;
+    }
+
+    const intensity = clamp(velocity / 127, 0.12, 1);
+    const usedSample = this.triggerSample(trackId, intensity);
+    if (!usedSample) {
+      this.outputMode = 'synth';
+      this.triggerSynth(trackId, intensity);
+    }
+  }
+
   triggerStep(pattern: PatternV1, stepIndex: number): void {
     const normalizedIndex = ((stepIndex % pattern.length) + pattern.length) % pattern.length;
     for (const track of pattern.tracks) {
@@ -309,12 +491,22 @@ class WebAudioDrumEngine implements DrumEngine {
       return;
     }
 
+    if (this.openHatSampleSource) {
+      try {
+        this.openHatSampleSource.stop();
+      } catch {
+        // ignore
+      }
+      this.openHatSampleSource = null;
+      this.openHatSampleGain = null;
+    }
+
     void this.context.close();
     this.state = 'closed';
+    this.outputMode = 'none';
   }
 }
 
-export function createWebAudioDrumEngine(): DrumEngine {
-  return new WebAudioDrumEngine();
+export function createWebAudioDrumEngine(options?: WebAudioDrumEngineOptions): DrumEngine {
+  return new WebAudioDrumEngine(options);
 }
-

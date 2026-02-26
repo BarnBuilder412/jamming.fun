@@ -8,7 +8,18 @@ const envSchema = z.object({
   ENABLE_AUDIOUS: z.string().optional().default('true'),
   ENABLE_BLINKS: z.string().optional().default('true'),
   SOLANA_CLUSTER: z.enum(['devnet', 'mainnet-beta']).default('devnet'),
+  SOLANA_RPC_URL: z.string().url().optional(),
   AUDIOUS_APP_NAME: z.string().default('jamming.fun'),
+  AUDIOUS_API_KEY: z.string().optional(),
+  AUDIOUS_API_SECRET: z.string().optional(),
+  AUDIOUS_BEARER_TOKEN: z.string().optional(),
+  AUDIOUS_WRITE_MODE: z.enum(['read_only', 'signed']).default('read_only'),
+  MAGICBLOCK_SOLANA_RPC_URL: z.string().url().optional(),
+  MAGICBLOCK_AUTH_WALLET_PRIVATE_KEY: z.string().optional(),
+  MAGICBLOCK_SOAR_GAME_PUBKEY: z.string().optional(),
+  MAGICBLOCK_SOAR_LEADERBOARD_PUBKEY: z.string().optional(),
+  MAGICBLOCK_SOAR_ACHIEVEMENT_PUBKEY: z.string().optional(),
+  BLINKS_SOLANA_RPC_URL: z.string().url().optional(),
 });
 
 function toBooleanFlag(value: string): boolean {
@@ -17,8 +28,13 @@ function toBooleanFlag(value: string): boolean {
 
 export type AppConfig = ReturnType<typeof loadConfig>;
 
+function defaultRpcForCluster(cluster: 'devnet' | 'mainnet-beta'): string {
+  return cluster === 'mainnet-beta' ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com';
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const parsed = envSchema.parse(env);
+  const solanaRpcUrl = parsed.SOLANA_RPC_URL ?? defaultRpcForCluster(parsed.SOLANA_CLUSTER);
 
   return {
     nodeEnv: parsed.NODE_ENV,
@@ -30,6 +46,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       enableBlinks: toBooleanFlag(parsed.ENABLE_BLINKS),
     },
     solanaCluster: parsed.SOLANA_CLUSTER,
+    solanaRpcUrl,
     audiusAppName: parsed.AUDIOUS_APP_NAME,
+    integrations: {
+      magicblock: {
+        solanaRpcUrl: parsed.MAGICBLOCK_SOLANA_RPC_URL ?? solanaRpcUrl,
+        authorityPrivateKey: parsed.MAGICBLOCK_AUTH_WALLET_PRIVATE_KEY,
+        soarGamePubkey: parsed.MAGICBLOCK_SOAR_GAME_PUBKEY,
+        soarLeaderboardPubkey: parsed.MAGICBLOCK_SOAR_LEADERBOARD_PUBKEY,
+        soarAchievementPubkey: parsed.MAGICBLOCK_SOAR_ACHIEVEMENT_PUBKEY,
+      },
+      audius: {
+        apiKey: parsed.AUDIOUS_API_KEY,
+        apiSecret: parsed.AUDIOUS_API_SECRET,
+        bearerToken: parsed.AUDIOUS_BEARER_TOKEN,
+        writeMode: parsed.AUDIOUS_WRITE_MODE,
+      },
+      blinks: {
+        solanaRpcUrl: parsed.BLINKS_SOLANA_RPC_URL ?? solanaRpcUrl,
+      },
+    },
   };
 }

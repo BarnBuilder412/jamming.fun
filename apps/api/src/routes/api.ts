@@ -182,24 +182,36 @@ export function registerApiRoutes(app: FastifyInstance, services: RuntimeService
         await services.prismaMirror.syncSettlement(roundSnapshot, settlement);
       });
 
-      const magicBlockResult = await services.integrations.magicBlock.recordRoundSettlement({
-        roomId: params.roomId,
-        roundId: params.roundId,
-        settlement,
-      });
-      const roomSnapshot = services.store.getRoomSnapshot(params.roomId);
-      const audiusResult = await services.integrations.audius.publishSessionMetadata({
-        roomId: params.roomId,
-        roundId: params.roundId,
-        title: roomSnapshot.title,
-        metadata: {
+      let magicBlockResult: { ok: boolean; reference?: string } = { ok: false };
+      try {
+        magicBlockResult = await services.integrations.magicBlock.recordRoundSettlement({
+          roomId: params.roomId,
           roundId: params.roundId,
-          totalPredictions: settlement.totalPredictions,
-          winningPredictions: settlement.winningPredictions,
-          commitVerified: settlement.commitVerified,
-          leaderboardTopWallet: settlement.leaderboard[0]?.userWallet ?? null,
-        },
-      });
+          settlement,
+        });
+      } catch (error) {
+        app.log.warn({ err: error, roundId: params.roundId }, 'MagicBlock settlement hook failed (degraded)');
+      }
+
+      const roomSnapshot = services.store.getRoomSnapshot(params.roomId);
+      let audiusResult: { ok: boolean; reference?: string } = { ok: false };
+      try {
+        audiusResult = await services.integrations.audius.publishSessionMetadata({
+          roomId: params.roomId,
+          roundId: params.roundId,
+          title: roomSnapshot.title,
+          metadata: {
+            roundId: params.roundId,
+            artistHandle: roomSnapshot.audiusHandle,
+            totalPredictions: settlement.totalPredictions,
+            winningPredictions: settlement.winningPredictions,
+            commitVerified: settlement.commitVerified,
+            leaderboardTopWallet: settlement.leaderboard[0]?.userWallet ?? null,
+          },
+        });
+      } catch (error) {
+        app.log.warn({ err: error, roundId: params.roundId }, 'Audius publish hook failed (degraded)');
+      }
 
       settlement = services.store.setSettlementIntegrations(params.roomId, params.roundId, {
         ...(magicBlockResult.reference ? { magicBlockSettlementReference: magicBlockResult.reference } : {}),

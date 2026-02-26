@@ -106,4 +106,34 @@ describe('api app', () => {
     expect(settle.statusCode).toBe(200);
     expect(settle.json().settlement.winningPredictions).toBe(1);
   });
+
+  it('serves Solana Action GET and OPTIONS headers for Blink endpoints', async () => {
+    const roomCreate = await appPromise.app.inject({
+      method: 'POST',
+      url: '/api/v1/rooms',
+      payload: { title: 'Blink Room', artistWallet: 'wallet_test_artist_1234567890' },
+    });
+    const roomId = roomCreate.json().room.id as string;
+
+    const optionsResponse = await appPromise.app.inject({
+      method: 'OPTIONS',
+      url: '/actions/join',
+      headers: {
+        origin: 'http://localhost:5173',
+        'access-control-request-method': 'POST',
+      },
+    });
+    expect(optionsResponse.statusCode).toBe(204);
+    expect(optionsResponse.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+
+    const actionResponse = await appPromise.app.inject({
+      method: 'GET',
+      url: `/actions/join?roomId=${roomId}`,
+    });
+    expect(actionResponse.statusCode).toBe(200);
+    expect(actionResponse.headers['x-blockchain-ids']).toBeTruthy();
+    const payload = actionResponse.json();
+    expect(payload.title).toContain('Join');
+    expect(Array.isArray(payload.links?.actions)).toBe(true);
+  });
 });

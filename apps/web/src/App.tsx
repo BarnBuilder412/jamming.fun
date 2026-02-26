@@ -1,5 +1,5 @@
 import { startTransition, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { createWebAudioDrumEngine, type DrumEngineState } from '@jamming/audio-engine';
+import { createWebAudioDrumEngine, type DrumEngineOutputMode, type DrumEngineState } from '@jamming/audio-engine';
 import { createEmptyPatternV1, hashPatternCommitInput } from '@jamming/pattern-core';
 import type { PatternV1, SettlementResult, TrackId, WsEventEnvelope } from '@jamming/shared-types';
 import { TRACK_IDS } from '@jamming/shared-types';
@@ -17,8 +17,8 @@ type PendingReveal = {
   roundId: string;
 };
 
-const DEFAULT_ARTIST_WALLET = 'wallet_artist_demo_12345678901234567890';
-const DEFAULT_USER_WALLET = 'wallet_user_demo_12345678901234567890';
+const DEFAULT_ARTIST_WALLET = 'HDTU6CkVUvtju76qMNGTRVQn3LS2HKLWbx446BrkgvfA';
+const DEFAULT_USER_WALLET = 'GwYEwPSdiqNbRAFyHc9XKFEVAZQYBiBFLii7JAdCfYZL';
 
 export function App() {
   const [pattern, setPattern] = useState<PatternV1>(() => createEmptyPatternV1(120));
@@ -34,9 +34,10 @@ export function App() {
   const [predictionWillBeActive, setPredictionWillBeActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [health, setHealth] = useState<{ dbReady: boolean; featureFlags: Record<string, boolean> } | null>(null);
+  const [health, setHealth] = useState<Awaited<ReturnType<typeof apiClient.health>> | null>(null);
   const [activity, setActivity] = useState<string[]>([]);
   const [audioState, setAudioState] = useState<DrumEngineState>('unsupported');
+  const [audioOutputMode, setAudioOutputMode] = useState<DrumEngineOutputMode>('none');
   const [audioVolume, setAudioVolume] = useState(75);
   const [blinkPreview, setBlinkPreview] = useState<{
     join?: string;
@@ -62,9 +63,7 @@ export function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const healthz = await fetch(webEnv.apiBaseUrl.replace(/\/api\/v1\/?$/, '/healthz')).then(
-          async (response) => response.json() as Promise<{ dbReady: boolean; featureFlags: Record<string, boolean> }>,
-        );
+        const healthz = await apiClient.health();
         setHealth(healthz);
       } catch {
         setHealth(null);
@@ -73,14 +72,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const engine = createWebAudioDrumEngine();
+    const engine = createWebAudioDrumEngine({ sampleBaseUrl: webEnv.sampleKitBaseUrl });
     audioEngineRef.current = engine;
     setAudioState(engine.getState());
+    setAudioOutputMode(engine.getOutputMode());
     engine.setMasterGain(0.75);
 
     return () => {
       engine.dispose();
       setAudioState(engine.getState());
+      setAudioOutputMode(engine.getOutputMode());
     };
   }, []);
 
@@ -106,6 +107,7 @@ export function App() {
 
     engine.triggerStep(patternRef.current, playheadStep);
     setAudioState(engine.getState());
+    setAudioOutputMode(engine.getOutputMode());
   }, [isPlaying, playheadStep]);
 
   const handleSocketEvent = useEffectEvent((event: WsEventEnvelope) => {
@@ -165,6 +167,7 @@ export function App() {
     }
     const nextState = await engine.unlock();
     setAudioState(nextState);
+    setAudioOutputMode(engine.getOutputMode());
     return nextState;
   };
 
@@ -178,6 +181,7 @@ export function App() {
       .then((state) => {
         if (state === 'ready') {
           engine.triggerTrack(trackId, 110);
+          setAudioOutputMode(engine.getOutputMode());
         }
       })
       .catch(() => {
@@ -228,6 +232,11 @@ export function App() {
         return;
       }
 
+      if (state === 'loading') {
+        setError('Audio is unlocked. Samples are still loading, try Play again in a moment.');
+        return;
+      }
+
       if (state !== 'ready') {
         setError('Audio is locked. Click Play again after interacting with the page.');
         return;
@@ -244,7 +253,7 @@ export function App() {
       const response = await apiClient.createRoom({
         title: 'Judge Demo Room',
         artistWallet: walletConnected ? DEFAULT_ARTIST_WALLET : undefined,
-        audiusHandle: 'jammingfun-demo',
+        audiusHandle: 'audius',
       });
       setRoom(response.room);
       setSettlement(null);
@@ -405,7 +414,7 @@ export function App() {
         const created = await apiClient.createRoom({
           title: 'Judge Demo Room',
           artistWallet: walletConnected ? DEFAULT_ARTIST_WALLET : undefined,
-          audiusHandle: 'jammingfun-demo',
+          audiusHandle: 'audius',
         });
         activeRoom = created.room;
         setRoom(created.room);
@@ -532,7 +541,7 @@ export function App() {
               </label>
               <Pill tone="accent">Step {playheadStep + 1}/16</Pill>
               <Pill tone={audioState === 'ready' ? 'success' : audioState === 'unsupported' ? 'danger' : 'default'}>
-                Audio: {audioState}
+                Audio: {audioState}{audioState === 'ready' ? ` (${audioOutputMode})` : ''}
               </Pill>
               <label className="volume-control">
                 <span>Vol</span>
@@ -573,6 +582,12 @@ export function App() {
                 </div>
               ))}
             </div>
+            {audioState === 'ready' && audioOutputMode === 'synth' ? (
+              <p className="status-line">Samples unavailable, using synth fallback (demo still works).</p>
+            ) : null}
+            {audioState === 'loading' ? (
+              <p className="status-line">Loading local drum samples...</p>
+            ) : null}
           </Panel>
 
           <Panel title="Round Controls" subtitle="V1 demo flow: commit -> predict -> lock -> reveal -> settle">
@@ -704,16 +719,62 @@ export function App() {
               </div>
               <div>
                 <span>MagicBlock</span>
-                <Pill tone={health?.featureFlags?.enableMagicBlock ? 'success' : 'danger'}>{health?.featureFlags?.enableMagicBlock ? 'enabled' : 'disabled / unknown'}</Pill>
+                <Pill
+                  tone={
+                    health?.integrations?.magicBlock?.mode === 'real'
+                      ? 'success'
+                      : health?.featureFlags?.enableMagicBlock
+                        ? 'accent'
+                        : 'danger'
+                  }
+                >
+                  {health?.integrations?.magicBlock?.mode ?? (health?.featureFlags?.enableMagicBlock ? 'enabled' : 'disabled / unknown')}
+                </Pill>
               </div>
               <div>
                 <span>Audius</span>
-                <Pill tone={health?.featureFlags?.enableAudius ? 'success' : 'danger'}>{health?.featureFlags?.enableAudius ? 'enabled' : 'disabled / unknown'}</Pill>
+                <Pill
+                  tone={
+                    health?.integrations?.audius?.mode === 'real'
+                      ? 'success'
+                      : health?.featureFlags?.enableAudius
+                        ? 'accent'
+                        : 'danger'
+                  }
+                >
+                  {health?.integrations?.audius?.mode ?? (health?.featureFlags?.enableAudius ? 'enabled' : 'disabled / unknown')}
+                </Pill>
               </div>
               <div>
                 <span>Blinks</span>
-                <Pill tone={health?.featureFlags?.enableBlinks ? 'success' : 'danger'}>{health?.featureFlags?.enableBlinks ? 'enabled' : 'disabled / unknown'}</Pill>
+                <Pill
+                  tone={
+                    health?.integrations?.blinks?.mode === 'real'
+                      ? 'success'
+                      : health?.featureFlags?.enableBlinks
+                        ? 'accent'
+                        : 'danger'
+                  }
+                >
+                  {health?.integrations?.blinks?.mode ?? (health?.featureFlags?.enableBlinks ? 'enabled' : 'disabled / unknown')}
+                </Pill>
               </div>
+              {health?.integrations ? (
+                <div className="integration-proofs">
+                  <div>
+                    <span>MagicBlock status</span>
+                    <code>{health.integrations.magicBlock?.details ?? 'n/a'}</code>
+                  </div>
+                  <div>
+                    <span>Audius status</span>
+                    <code>{health.integrations.audius?.details ?? 'n/a'}</code>
+                  </div>
+                  <div>
+                    <span>Blinks status</span>
+                    <code>{health.integrations.blinks?.details ?? 'n/a'}</code>
+                  </div>
+                </div>
+              ) : null}
               {blinkUrls ? (
                 <div className="blink-links">
                   <a href={blinkUrls.join} target="_blank" rel="noreferrer">Blink: Join</a>
