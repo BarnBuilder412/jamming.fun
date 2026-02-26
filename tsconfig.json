@@ -1,0 +1,7 @@
+{
+  "extends": "@jamming/config-ts/base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": []
+}

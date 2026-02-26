@@ -1,0 +1,22 @@
+{
+  "name": "@jamming/integrations",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@jamming/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@jamming/config-eslint": "workspace:*",
+    "@jamming/config-ts": "workspace:*"
+  }
+}

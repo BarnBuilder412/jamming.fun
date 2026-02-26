@@ -1,0 +1,7 @@
+{
+  "extends": "@jamming/config-ts/react.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}

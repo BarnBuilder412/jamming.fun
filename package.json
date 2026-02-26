@@ -1,0 +1,29 @@
+{
+  "name": "jamming.fun",
+  "private": true,
+  "packageManager": "pnpm@10.5.2",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "dev:web": "pnpm --filter @jamming/web dev",
+    "dev:api": "pnpm --filter @jamming/api dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:up": "docker compose -f infra/docker-compose.yml up -d",
+    "db:down": "docker compose -f infra/docker-compose.yml down",
+    "db:migrate": "dotenv -e .env -- pnpm --filter @jamming/api prisma migrate dev --schema prisma/schema.prisma",
+    "db:studio": "dotenv -e .env -- pnpm --filter @jamming/api prisma studio --schema prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "@jamming/config-ts": "workspace:*",
+    "@types/node": "^22.13.5",
+    "dotenv-cli": "^8.0.0",
+    "eslint": "^9.20.1",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.6"
+  }
+}

@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoomStatus {
+  active
+  archived
+}
+
+enum RoundPhase {
+  awaiting_commit
+  prediction_open
+  locked
+  revealed
+  settled
+}
+
+enum TrackId {
+  kick
+  snare
+  hat_closed
+  hat_open
+  clap
+}
+
+model User {
+  id           String        @id @default(cuid())
+  walletAddress String       @unique
+  displayName  String?
+  predictions  Prediction[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  artistProfile ArtistProfile?
+}
+
+model ArtistProfile {
+  id               String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  audiusHandle      String?
+  audiusProfileUrl  String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  rooms             Room[]
+}
+
+model Room {
+  id              String         @id @default(cuid())
+  code            String         @unique
+  title           String
+  status          RoomStatus     @default(active)
+  artistWallet    String?
+  audiusHandle    String?
+  artistProfileId String?
+  artistProfile   ArtistProfile? @relation(fields: [artistProfileId], references: [id], onDelete: SetNull)
+  rounds          Round[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([createdAt])
+}
+
+model Round {
+  id              String      @id @default(cuid())
+  roomId           String
+  room             Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roundIndex       Int
+  phase            RoundPhase
+  bpm              Int         @default(120)
+  commitHash       String?
+  patternVersion   Int?
+  revealPattern    Json?
+  revealNonce      String?
+  commitVerified   Boolean?
+  startedAt        DateTime    @default(now())
+  lockedAt         DateTime?
+  revealedAt       DateTime?
+  settledAt        DateTime?
+  commitment       Commitment?
+  predictions      Prediction[]
+  settlement       Settlement?
+  rewards          RewardLedgerEntry[]
+
+  @@unique([roomId, roundIndex])
+  @@index([roomId, phase])
+}
+
+model Commitment {
+  id             String   @id @default(cuid())
+  roundId         String   @unique
+  round           Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  commitHash      String
+  patternVersion  Int      @default(1)
+  createdAt       DateTime @default(now())
+}
+
+model Prediction {
+  id            String   @id @default(cuid())
+  roundId        String
+  round          Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userWallet     String
+  trackId        TrackId
+  stepIndex      Int
+  willBeActive   Boolean
+  submittedAt    DateTime @default(now())
+
+  @@index([roundId])
+  @@index([userWallet])
+}
+
+model Settlement {
+  id                String   @id @default(cuid())
+  roundId            String   @unique
+  round              Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  commitVerified     Boolean
+  totalPredictions   Int
+  winningPredictions Int
+  leaderboard        Json
+  createdAt          DateTime @default(now())
+}
+
+model RewardLedgerEntry {
+  id             String   @id @default(cuid())
+  roundId         String
+  round           Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  userWallet      String
+  units           Int
+  reason          String
+  externalReference String?
+  createdAt       DateTime @default(now())
+
+  @@index([roundId])
+  @@index([userWallet])
+}

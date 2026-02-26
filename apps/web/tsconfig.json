@@ -1,0 +1,8 @@
+{
+  "extends": "@jamming/config-ts/react.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
+}

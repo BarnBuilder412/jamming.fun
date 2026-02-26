@@ -1,0 +1,31 @@
+{
+  "name": "@jamming/web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@jamming/audio-engine": "workspace:*",
+    "@jamming/pattern-core": "workspace:*",
+    "@jamming/shared-types": "workspace:*",
+    "@jamming/solana": "workspace:*",
+    "@jamming/ui": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@jamming/config-eslint": "workspace:*",
+    "@jamming/config-ts": "workspace:*",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.4.1",
+    "vite": "^6.1.0"
+  }
+}

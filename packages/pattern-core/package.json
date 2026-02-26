@@ -1,0 +1,23 @@
+{
+  "name": "@jamming/pattern-core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@jamming/shared-types": "workspace:*",
+    "@noble/hashes": "^1.7.1"
+  },
+  "devDependencies": {
+    "@jamming/config-eslint": "workspace:*",
+    "@jamming/config-ts": "workspace:*"
+  }
+}
