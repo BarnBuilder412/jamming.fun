@@ -43,6 +43,7 @@ jamming.fun/
 │   ├── pattern-core  — Pattern serialization, canonical hashing (SHA-256)
 │   ├── shared-types  — Zod schemas + TS types (API, events, game, pattern)
 │   ├── integrations  — Adapter interfaces + implementations (MagicBlock, Audius, Blinks)
+│   │   └── scripts/  — Setup scripts (setup-soar.mjs for devnet provisioning)
 │   ├── solana        — Solana cluster helpers, Blink URL builders, reward claim types
 │   ├── ui            — Shared React components (Panel, Button, Pill) + design tokens
 │   ├── config-eslint — Shared ESLint config
@@ -55,14 +56,15 @@ jamming.fun/
 
 | Layer            | Technology                                                              |
 | ---------------- | ----------------------------------------------------------------------- |
-| Frontend         | React 19, Vite, React Router, TypeScript                               |
+| Frontend         | React 19, Vite, React Router, TypeScript, Privy (in-progress)          |
 | Backend          | Fastify, Zod validation, WebSocket (native ws), TypeScript             |
 | Audio            | Web Audio API (synthesis mode) + sample playback (Hydrogen-lite .wav)   |
 | Persistence      | In-memory GameStore (primary) + Prisma/Postgres mirror (optional sync)  |
 | Crypto/Hashing   | `@noble/hashes` (SHA-256 for commit-reveal)                            |
-| Integrations     | MagicBlock SOAR, Audius SDK, Solana Actions (Blinks)                    |
+| Integrations     | MagicBlock SOAR (live on devnet), Audius SDK, Solana Actions (Blinks)   |
 | Blockchain       | Solana Devnet (`@solana/web3.js`, `@solana/actions`)                    |
-| Build            | Turborepo, pnpm workspaces                                             |
+| Auth/Wallets     | Privy (`@privy-io/react-auth`) — in-progress, replacing hardcoded wallets |
+| Build            | Turborepo, pnpm workspaces, dotenv-cli                                 |
 
 ---
 
@@ -95,8 +97,10 @@ jamming.fun/
   - Leaderboard + results panel
   - Audio enable toggle
 - **`@jamming/ui`** — Shared components: `Panel`, `Button`, `Pill`, `jamThemeVars` design tokens
-- **Hooks:** `usePlayhead` (interval-based step scheduling), `useRoomSocket` (WS auto-connect/cleanup)
+- **Hooks:** `usePlayhead` (interval-based step scheduling), `useRoomSocket` (WS connect/cleanup — uses ref pattern to prevent reconnect loops)
 - **Lib:** `apiClient.ts` (typed REST client), `wsClient.ts` (WebSocket wrapper), `env.ts` (config)
+
+> **Note:** Wallet addresses are currently hardcoded (DEFAULT_ARTIST_WALLET, DEFAULT_USER_WALLET). Privy integration is in-progress to replace these with real wallet connections.
 
 **Definition of Done** — ✅ Met
 
@@ -217,16 +221,40 @@ jamming.fun/
     - CORS headers for cross-origin discovery
   - **Noop adapters** (`noop.ts`, 10.3 KB) — Feature-flag-gated mock implementations for testing / when integrations are unavailable
   - **Type system** (`types.ts`) — `MagicBlockAdapter`, `AudiusAdapter`, `BlinksAdapter` interfaces; `IntegrationStatus`, `IntegrationMode`, config types
+  - **Setup script** (`scripts/setup-soar.mjs`) — Provisions SOAR Game, Leaderboard, and Achievement on-chain
 - **`@jamming/solana`** — Utilities:
   - `getSolanaRpcUrl()`, `createBlinkActionUrls()`, `RewardClaimTicket` type
 - **Feature flags** — `ENABLE_MAGICBLOCK`, `ENABLE_AUDIUS`, `ENABLE_BLINKS` env vars
 - **Integration status endpoint** — `GET /integrations/status` returns live status of all 3 integrations
 - **Test/production toggle** — `NODE_ENV=test` automatically uses noop adapters
 
+**MagicBlock SOAR — Live on Devnet** ✅
+
+SOAR resources have been provisioned on Solana devnet:
+
+| Resource     | Pubkey                                             |
+| ------------ | -------------------------------------------------- |
+| Game         | `4VXRF7EPmb5vvf6HPcmP61yPzeLgkzV7TgTKs7nQRiAn`    |
+| Leaderboard  | `4QjHJ2dkGMmZzD6mxVaPMXPHHZRHs56hKab9xwuksRJA`    |
+| Achievement  | `GqxoososUzDrGVRhZBX8ASSem8iQi2DaN58vnpYPz3iN`    |
+| Authority    | `2Ka2bv1NytmBikBseaMt7LgzpBrXxyaTZ5b8oLiH5psj`    |
+
+- All `.env` keys are configured (RPC URL, authority key, game/leaderboard/achievement pubkeys)
+- `GET /healthz` reports `"mode": "real"`, `"ready": true` when dotenv loads correctly
+- Settlement transactions post real scores to the on-chain SOAR leaderboard
+- View activity on [Solana Explorer (devnet)](https://explorer.solana.com/address/2Ka2bv1NytmBikBseaMt7LgzpBrXxyaTZ5b8oLiH5psj?cluster=devnet)
+
+**How SOAR transactions work (no user signing needed):**
+- The server signs all SOAR transactions using the authority wallet private key
+- Users only provide their public wallet address (currently hardcoded, Privy integration in-progress)
+- On settlement: `registerPlayerEntryForLeaderBoard()` + `submitScoreToLeaderBoard()` for each winner
+- On claim: `claimFtReward()` via the achievement pubkey
+
 **Definition of Done** — ✅ Met
 
 - All 3 integrations are visible + usable in demo
 - Integration failures degrade gracefully (noop fallback, don't break core flow)
+- MagicBlock SOAR is live on devnet with real on-chain transactions
 
 ---
 
@@ -261,11 +289,15 @@ jamming.fun/
 - Audius artist resolution + session metadata
 - Blinks action endpoints (Join / Predict / Claim) with Solana Actions spec compliance
 
-### Phase 4 — Demo Hardening (In Progress)
+### Phase 4 — Demo Hardening & Wallet Integration (In Progress)
 
 - Auto-demo mode (`runAutoDemoRound()`) in ArtistView for judge walkthroughs
 - Demo runbook available at `docs/demo-runbook.md`
-- Fix bugs, polish UI, test full live demo
+- ✅ MagicBlock SOAR provisioned on devnet (Game + Leaderboard + Achievement)
+- ✅ `.env` fully configured with all SOAR keys
+- ✅ Fixed WebSocket reconnection loop (`useRoomSocket` ref pattern)
+- ✅ Added `dotenv-cli` to dev script for proper `.env` loading
+- 🔧 Privy integration in-progress (replacing hardcoded wallet addresses)
 - Record backup demo path (in case integration hiccups)
 
 ---
@@ -289,3 +321,15 @@ A judge can see this flow live:
 - DRiP drops for top predictors / artists
 - Loyalty (XP, streaks, tiers)
 - Exchange Art integration (optional)
+
+---
+
+## Recent Bug Fixes & Infra Changes
+
+| Date       | Change                                                    | Files Modified                              |
+| ---------- | --------------------------------------------------------- | ------------------------------------------- |
+| 2026-02-27 | Fixed WebSocket reconnect loop (ref pattern)              | `apps/web/src/hooks/useRoomSocket.ts`       |
+| 2026-02-27 | Added dotenv to dev script for env loading                | `package.json` (root)                       |
+| 2026-02-27 | SOAR setup script created                                 | `packages/integrations/scripts/setup-soar.mjs`, `packages/integrations/package.json` |
+| 2026-02-27 | MagicBlock SOAR provisioned on devnet                     | `.env` (SOAR pubkeys filled in)             |
+| 2026-02-27 | Privy integration started                                 | `apps/web/package.json` (dependency added)  |
