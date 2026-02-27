@@ -1,7 +1,17 @@
 import { z } from 'zod';
 
-export const TRACK_IDS = ['kick', 'snare', 'hat_closed', 'hat_open', 'clap'] as const;
-export const STEPS_PER_PATTERN_V1 = 16 as const;
+export const TRACK_IDS = [
+  'kick',
+  'snare',
+  'hat_closed',
+  'hat_open',
+  'clap',
+  'tom_low',
+  'tom_high',
+  'rim',
+  'keyboard',
+] as const;
+export const STEPS_PER_PATTERN_V1 = 32 as const;
 
 export const trackIdSchema = z.enum(TRACK_IDS);
 

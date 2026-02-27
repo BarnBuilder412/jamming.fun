@@ -8,7 +8,7 @@ CREATE TYPE "RoomStatus" AS ENUM ('active', 'archived');
 CREATE TYPE "RoundPhase" AS ENUM ('awaiting_commit', 'prediction_open', 'locked', 'revealed', 'settled');
 
 -- CreateEnum
-CREATE TYPE "TrackId" AS ENUM ('kick', 'snare', 'hat_closed', 'hat_open', 'clap');
+CREATE TYPE "TrackId" AS ENUM ('kick', 'snare', 'hat_closed', 'hat_open', 'clap', 'tom_low', 'tom_high', 'rim', 'keyboard');
 
 -- CreateTable
 CREATE TABLE "User" (
@@ -178,4 +178,3 @@ ALTER TABLE "Settlement" ADD CONSTRAINT "Settlement_roundId_fkey" FOREIGN KEY ("
 
 -- AddForeignKey
 ALTER TABLE "RewardLedgerEntry" ADD CONSTRAINT "RewardLedgerEntry_roundId_fkey" FOREIGN KEY ("roundId") REFERENCES "Round"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-

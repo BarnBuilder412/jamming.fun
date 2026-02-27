@@ -1,291 +1,151 @@
-# agents.md — jamming.fun (Implementation Status & Build Plan)
+# agents.md — jamming.fun (Current Execution State)
 
-## Rule 0 (Non-negotiable)
+Last updated: 2026-02-27
 
-- **Build MVP V1 end-to-end first**
-- **No MVP V2 work starts before V1 demo flow works**
-- Mandatory in V1: **MagicBlock + Audius + Blinks**
+## Rule 0
 
-## Product Scope (Concise)
+- Ship MVP V1 end-to-end first.
+- No V2 work before V1 demo flow is stable.
+- Mandatory in V1: MagicBlock + Audius + Blinks.
 
-### MVP V1 (Ship First)
-
-- Drum machine UI (Hydrogen-inspired look, dark theme)
-- Artist live pattern creation
-- **Commit-Reveal** for next segment
-- User predictions
-- Winner scoring + **track token rewards**
-- MagicBlock integration (mandatory)
-- Audius integration (mandatory)
-- Blinks integration (mandatory)
-- End-to-end demo flow
-
-### MVP V2 (Only after V1 complete)
-
-- DRiP integration
-- Loyalty integration
-- Exchange Art (if time)
-
----
-
-## Current Architecture
-
-### Monorepo (Turborepo + pnpm)
+## Repository Shape
 
 ```
 jamming.fun/
 ├── apps/
-│   ├── api/          — Fastify REST + WebSocket backend
-│   └── web/          — React + Vite frontend (SPA)
+│   ├── api/          Fastify REST + WS backend
+│   └── web/          React + Vite frontend
 ├── packages/
-│   ├── audio-engine  — Web Audio API drum engine + playhead
-│   ├── game-core     — Phase transitions, commit-reveal verification, settlement scoring
-│   ├── pattern-core  — Pattern serialization, canonical hashing (SHA-256)
-│   ├── shared-types  — Zod schemas + TS types (API, events, game, pattern)
-│   ├── integrations  — Adapter interfaces + implementations (MagicBlock, Audius, Blinks)
-│   ├── solana        — Solana cluster helpers, Blink URL builders, reward claim types
-│   ├── ui            — Shared React components (Panel, Button, Pill) + design tokens
-│   ├── config-eslint — Shared ESLint config
-│   └── config-ts     — Shared TypeScript config
-├── infra/            — Docker Compose (Postgres)
-└── docs/             — architecture.md, api-contracts.md, demo-runbook.md
+│   ├── audio-engine
+│   ├── game-core
+│   ├── pattern-core
+│   ├── shared-types
+│   ├── integrations
+│   │   └── scripts/setup-soar.mjs
+│   ├── solana
+│   └── ui
+├── programs/
+│   └── jamming_prediction/   Anchor contract scaffold (in progress)
+└── infra/
 ```
 
-### Tech Stack
+## What Is Implemented (Working)
 
-| Layer            | Technology                                                              |
-| ---------------- | ----------------------------------------------------------------------- |
-| Frontend         | React 19, Vite, React Router, TypeScript                               |
-| Backend          | Fastify, Zod validation, WebSocket (native ws), TypeScript             |
-| Audio            | Web Audio API (synthesis mode) + sample playback (Hydrogen-lite .wav)   |
-| Persistence      | In-memory GameStore (primary) + Prisma/Postgres mirror (optional sync)  |
-| Crypto/Hashing   | `@noble/hashes` (SHA-256 for commit-reveal)                            |
-| Integrations     | MagicBlock SOAR, Audius SDK, Solana Actions (Blinks)                    |
-| Blockchain       | Solana Devnet (`@solana/web3.js`, `@solana/actions`)                    |
-| Build            | Turborepo, pnpm workspaces                                             |
+### Core Game + API
 
----
+- Room lifecycle: create room, start round, commit, predict, lock, reveal, settle.
+- Commit-reveal verification via canonical pattern hashing.
+- Stake-based prediction flow with USDC minor units.
+- Settlement includes:
+  - artist pending share
+  - platform fee
+  - liquidity reserve
+  - winner pot distribution (pro-rata by correct stake)
+  - rollover accounting
+- Batch prediction endpoint for better user UX.
 
-## Team Split (4 People)
+### Frontend
 
-### Agent 1 — Frontend + UX (Sequencer UI) ✅ DONE
+- Artist and Listener apps are both operational.
+- 9-lane sequencer: `kick/snare/hat_closed/hat_open/clap/tom_low/tom_high/rim/keyboard`.
+- Grid size toggle: 16 or 32 steps.
+- Responsive pad width now uses selected grid size.
+- Track visualization includes icon + name badges.
+- Wallet hook with injected Solana wallet support.
 
-**Owns**
+### Audio
 
-- Drum machine grid UI (dark theme, yellow/orange active pads)
-- Artist controls (play/stop/BPM/basic controls)
-- Prediction UI
-- Leaderboard / round status UI
-- Wallet connect UI integration support
+- WebAudio drum/synth engine with per-lane synthesized voices.
+- Sample kit loading for drum lanes.
+- Fixed false “samples unavailable” state when synth-only lanes play.
 
-**What Was Built**
+### Integrations
 
-- **`LandingPage.tsx`** — Hero landing with two cards (Artist / Listener), room code entry
-- **`ArtistView.tsx`** (753 lines) — Full artist dashboard:
-  - 5-track × 16-step sequencer grid with playhead visualization
-  - Play/Stop toggle, BPM slider, volume control
-  - Room creation, round lifecycle buttons (Start → Commit → Lock → Reveal → Settle)
-  - Copy-able room code, event log panel
-  - Auto-demo mode for judge walkthrough
-  - Blink payload preview, claim top reward action
-- **`UserView.tsx`** (475 lines) — Listener/predictor dashboard:
-  - Live beat visualization from WebSocket events
-  - Tap-to-predict grid with submission
-  - Phase-aware UI (shows current round status)
-  - Leaderboard + results panel
-  - Audio enable toggle
-- **`@jamming/ui`** — Shared components: `Panel`, `Button`, `Pill`, `jamThemeVars` design tokens
-- **Hooks:** `usePlayhead` (interval-based step scheduling), `useRoomSocket` (WS auto-connect/cleanup)
-- **Lib:** `apiClient.ts` (typed REST client), `wsClient.ts` (WebSocket wrapper), `env.ts` (config)
+- MagicBlock/Audius/Blinks adapter structure is implemented.
+- Health and integration status endpoints are exposed.
+- Blinks action routes implemented (`join/predict/claim`).
+- SOAR setup utility script added: `pnpm --filter @jamming/integrations run setup-soar`.
 
-**Definition of Done** — ✅ Met
+## Changes Integrated from `origin/magicblock`
 
-- UI matches dark-theme reference style direction
-- Artist and user can interact end-to-end when connected to backend
+Integrated from commit `107f920` (excluding old branch `agents.md` content):
 
-### Agent 2 — Game Logic + Backend (Core V1) ✅ DONE
+- `apps/web/src/hooks/useRoomSocket.ts`
+  - Fixed reconnect churn by using `useRef` for event callback.
+- `package.json`
+  - Root `dev` script now loads `.env` with `dotenv`.
+- `packages/integrations/package.json`
+  - Added `setup-soar` script.
+- `packages/integrations/scripts/setup-soar.mjs`
+  - Added SOAR provisioning helper.
+- `apps/web/package.json`
+  - Added `@privy-io/react-auth` dependency (not fully wired in UI yet).
 
-**Owns**
+## Known Gaps (Not Yet Production-Complete)
 
-- Room/session APIs
-- Round lifecycle
-- **Commit-Reveal verification**
-- Prediction submission + lock
-- Scoring + winner selection
-- Track token reward distribution ledger (V1 = points/token units)
+### 1) On-chain Contract Completion (Highest Priority)
 
-**What Was Built**
+`programs/jamming_prediction` is scaffold-level.
+Remaining critical work:
 
-- **`apps/api`** — Fastify server with:
-  - `routes/api.ts` — Full REST API:
-    - `POST /rooms` — Create room (with artist wallet + optional Audius handle)
-    - `GET /rooms/:roomId` — Get room details
-    - `GET /rooms/code/:code` — Lookup by room code
-    - `POST /rooms/:roomId/rounds` — Start new round
-    - `POST /rooms/:roomId/rounds/:roundId/commit` — Submit commit hash
-    - `POST /rooms/:roomId/rounds/:roundId/predict` — Submit prediction
-    - `POST /rooms/:roomId/rounds/:roundId/lock` — Lock prediction window
-    - `POST /rooms/:roomId/rounds/:roundId/reveal` — Reveal pattern + nonce
-    - `POST /rooms/:roomId/rounds/:roundId/settle` — Settle round & calculate results
-    - `GET /rooms/:roomId/rounds/:roundId/results` — Get settlement results
-    - `GET /rooms/:roomId/state` — Full room state
-    - `GET /integrations/status` — All integration statuses
-  - `routes/actions.ts` — Solana Actions (Blinks) endpoints:
-    - `GET/POST /actions/join`, `/actions/predict`, `/actions/claim`
-    - CORS headers for cross-origin action discovery
-  - `routes/health.ts` — Health check endpoint
-  - `ws/roomHub.ts` — WebSocket room pub/sub hub
-  - `services/gameStore.ts` — In-memory game store:
-    - Room CRUD, round lifecycle, prediction storage
-    - Phase-gated transitions (`awaiting_commit → prediction_open → locked → revealed → settled`)
-    - Settlement with integration metadata
-  - `services/prismaMirror.ts` — Optional Postgres mirror sync (rooms, rounds, predictions, settlements, artist profiles, reward ledger)
-  - `services/runtime.ts` — Runtime service container (store, roomHub, prismaMirror, integrations)
-  - `config.ts` — Zod-validated env config (all integration keys, feature flags, Solana cluster)
-  - `app.test.ts` — Integration tests for full round lifecycle
-- **`@jamming/game-core`** — Core game logic:
-  - `canTransitionPhase` / `assertTransitionPhase` — Phase state machine
-  - `verifyCommitReveal` — SHA-256 hash verification
-  - `evaluatePredictions` — Per-prediction correct/incorrect + reward units
-  - `settleRound` — Full settlement: leaderboard, rewards, commit verification
-- **`@jamming/shared-types`** — Zod schemas + TypeScript types:
-  - `api.ts` — Request/response schemas (room, round, commit, predict, reveal, settle)
-  - `game.ts` — `RoundPhase`, `SettlementResult`, `RewardLedgerEntry`, `LeaderboardEntry`
-  - `pattern.ts` — `PatternV1`, `StepState`, `TrackId`, `TRACK_IDS`, `STEPS_PER_PATTERN_V1`
-  - `events.ts` — WebSocket event envelope types
+- USDC vault ATA creation + transfer CPI in `place_prediction`.
+- Session/delegated signer + spend cap validation.
+- Full settle logic on-chain (winners, payouts, reward accounting).
+- Claim instructions (user + artist + protocol routing).
+- End-to-end Anchor tests for all flows and edge cases.
 
-**Definition of Done** — ✅ Met
+### 2) True Signless UX
 
-- End-to-end round settlement works reliably
-- Invalid reveal / late prediction handled (phase guard checks)
+- Current flow still relies on wallet-driven transaction paths.
+- Need session-key/sponsored transaction design finalized and wired.
 
-### Agent 3 — Audio + Sequencer Behavior ✅ DONE
+### 3) Integration Hardening
 
-**Owns**
+- Real-mode credential validation and clear fallback behavior per provider.
+- SOAR setup/runbook should be tested in a clean environment.
+- Privy dependency is present; full auth/wallet provider wiring still pending.
 
-- Hydrogen open-source sample usage (license check + sample prep)
-- Drum playback engine
-- Step scheduling / playhead behavior
-- Pattern serialization format (shared with commit-reveal)
-- Grid playback consistency for demo
+### 4) Liquidity/Bonding-Curve Execution Layer
 
-**What Was Built**
+- Economics are implemented in backend settlement math.
+- On-chain liquidity/pool/bonding-curve execution is not completed in contract path.
 
-- **`@jamming/audio-engine`** (513 lines) — Full drum engine:
-  - **Dual output mode:** synthesized audio (Web Audio API oscillators + noise buffers) OR sample-based playback (Hydrogen-lite .wav files)
-  - Per-track synthesis: `triggerKick`, `triggerSnare`, `triggerHat`, `triggerClap` with ADSR envelopes
-  - Sample loading via `fetchAndDecodeSample` with configurable base URL + manifest
-  - Per-track gain normalization (`TRACK_SAMPLE_GAIN` map)
-  - `DrumEngine` interface: `unlock()`, `setMasterGain()`, `triggerTrack()`, `triggerStep()`, `dispose()`
-  - `PlayheadController`: `start()`, `stop()`, `setBpm()`, `subscribe()` — interval-based 16-step scheduling
-  - Helper: `getActiveStepsForTrack()`
-- **`@jamming/pattern-core`** — Pattern serialization & hashing:
-  - `createEmptyPatternV1(bpm)` — 5-track × 16-step blank pattern
-  - `normalizePatternV1(input)` — Canonical normalization (ordered tracks, clamped velocity)
-  - `serializePatternCanonical(input)` — Deterministic string format: `pattern:v1;len:16;bpm:120;tracks:kick[0.100,1.100,...]|snare[...]|...`
-  - `buildCommitInput(params)` — Commit input string: `commit_input:v1|round:{id}|nonce:{nonce}|{serialized_pattern}`
-  - `hashCommitInput(input)` / `hashPatternCommitInput(params)` — SHA-256 hex digest
+## Current Execution Backlog (Ordered)
 
-**Definition of Done** — ✅ Met
+1. Finish Anchor contract transfer + settle + claim instructions.
+2. Add comprehensive contract tests (happy path + invalid reveal + all-wrong + low-volume).
+3. Route API to contract-backed settlement/claim path under feature flag.
+4. Complete signless/session wallet flow (Privy or chosen sponsor model).
+5. Run full demo validation checklist and freeze V1.
 
-- Artist can create and hear beat live (both synthesis + sample modes)
-- Same pattern always serializes the same way (deterministic canonical hashing)
+## Operational Commands
 
-### Agent 4 — Integrations (MagicBlock + Audius + Blinks) ✅ DONE
+### Database
 
-**Owns**
+- `pnpm db:up`
+- `pnpm db:migrate`
+- `pnpm db:studio`
 
-- MagicBlock integration (mandatory game flow hook)
-- Audius integration (mandatory visible feature)
-- Blinks integration (mandatory action flow)
-- Demo-friendly integration checks / fallback handling
+### Dev
 
-**What Was Built**
+- `pnpm dev`
+- `pnpm dev:api`
+- `pnpm dev:web`
 
-- **`@jamming/integrations`** — Adapter pattern with real + noop (mock/graceful-degradation) variants:
-  - **MagicBlock SOAR adapter** (`magicblockSoar.ts`, 8.6 KB):
-    - `recordRoundSettlement()` — Posts settlement to SOAR leaderboard
-    - `claimReward()` — Claims reward via SOAR achievement
-    - Graceful fallback with detailed status reporting
-  - **Audius SDK adapter** (`audiusSdk.ts`, 5.3 KB):
-    - `resolveArtist()` — Resolves artist profile by wallet or handle
-    - `publishSessionMetadata()` — Publishes session metadata to Audius
-    - Read-only + signed write modes
-  - **Blinks Actions adapter** (`blinksActions.ts`, 7.9 KB):
-    - `buildJoinAction()` / `buildPredictAction()` / `buildClaimAction()` — GET action metadata (Solana Actions spec)
-    - `buildJoinPostResponse()` / `buildPredictPostResponse()` / `buildClaimPostResponse()` — POST transaction builders
-    - CORS headers for cross-origin discovery
-  - **Noop adapters** (`noop.ts`, 10.3 KB) — Feature-flag-gated mock implementations for testing / when integrations are unavailable
-  - **Type system** (`types.ts`) — `MagicBlockAdapter`, `AudiusAdapter`, `BlinksAdapter` interfaces; `IntegrationStatus`, `IntegrationMode`, config types
-- **`@jamming/solana`** — Utilities:
-  - `getSolanaRpcUrl()`, `createBlinkActionUrls()`, `RewardClaimTicket` type
-- **Feature flags** — `ENABLE_MAGICBLOCK`, `ENABLE_AUDIUS`, `ENABLE_BLINKS` env vars
-- **Integration status endpoint** — `GET /integrations/status` returns live status of all 3 integrations
-- **Test/production toggle** — `NODE_ENV=test` automatically uses noop adapters
+### Validation
 
-**Definition of Done** — ✅ Met
+- `pnpm --filter @jamming/web typecheck`
+- `pnpm --filter @jamming/web lint`
+- `pnpm --filter @jamming/audio-engine typecheck`
+- `pnpm --filter @jamming/api test`
+- `pnpm --filter @jamming/game-core test`
 
-- All 3 integrations are visible + usable in demo
-- Integration failures degrade gracefully (noop fallback, don't break core flow)
+## Acceptance Definition for V1 Demo
 
----
+V1 is considered complete only when:
 
-## Shared Agreements (Important)
-
-- **Single source of truth for pattern format** → `@jamming/shared-types` `PatternV1` (used by UI, audio, backend, commit-reveal)
-- **Keep V1 rewards simple** → points / track token units (10 units per correct prediction)
-- **No gambling/legal complexity in V1 messaging** → framed as prediction game
-- **Canonical pattern serialization** → `@jamming/pattern-core` ensures deterministic hashing
-- **WebSocket for real-time sync** → `RoomHub` broadcasts room state changes to all connected clients
-
----
-
-## Build Order (Completed)
-
-### Phase 1 — Foundation ✅
-
-- Agent 1: UI shell + grid → `LandingPage`, `ArtistView`, `UserView` scaffolded
-- Agent 2: Round APIs + room state skeleton → `GameStore`, REST routes
-- Agent 3: Playback engine + samples → `DrumEngine`, `PlayheadController`
-- Agent 4: Integration scaffolds → Adapter interfaces + noop implementations
-
-### Phase 2 — Core V1 Loop ✅
-
-- Integrated UI + audio + backend via `apiClient` + `useRoomSocket`
-- Implemented commit-reveal via `@jamming/pattern-core` + `@jamming/game-core`
-- Implemented prediction + scoring + settlement in `GameStore.settleRound()`
-
-### Phase 3 — Mandatory Integrations ✅
-
-- MagicBlock SOAR flow (leaderboard + claims)
-- Audius artist resolution + session metadata
-- Blinks action endpoints (Join / Predict / Claim) with Solana Actions spec compliance
-
-### Phase 4 — Demo Hardening (In Progress)
-
-- Auto-demo mode (`runAutoDemoRound()`) in ArtistView for judge walkthroughs
-- Demo runbook available at `docs/demo-runbook.md`
-- Fix bugs, polish UI, test full live demo
-- Record backup demo path (in case integration hiccups)
-
----
-
-## V1 Demo Success Criteria
-
-A judge can see this flow live:
-
-1. ✅ Artist creates beat on drum machine (5-track × 16-step grid with live audio)
-2. ✅ Artist commits future segment (SHA-256 hash of canonical pattern + nonce)
-3. ✅ Users submit predictions (per-step active/inactive guesses)
-4. ✅ Artist reveals segment (pattern + nonce sent, hash verified server-side)
-5. ✅ System verifies commit-reveal (`game-core.verifyCommitReveal()`)
-6. ✅ Winners get track token rewards (10 units per correct prediction, leaderboard sorted)
-7. ✅ MagicBlock, Audius, and Blinks are visibly integrated (adapter + endpoints + UI)
-
----
-
-## MVP V2 (After V1 only)
-
-- DRiP drops for top predictors / artists
-- Loyalty (XP, streaks, tiers)
-- Exchange Art integration (optional)
+- Artist and user complete one full round live (commit → predict → reveal → settle).
+- Winner receives immediate USDC winner-pot payout accounting in settlement state.
+- Blinks endpoints are usable and return valid action payloads.
+- MagicBlock/Audius integrations run in real mode (or clearly documented degraded fallback).
+- No reconnect loops, no stale audio-state warnings, no critical runtime errors.

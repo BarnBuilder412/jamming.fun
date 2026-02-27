@@ -5,6 +5,7 @@ import {
   type ActionPostResponse,
 } from '@solana/actions';
 import { Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { STEPS_PER_PATTERN_V1, TRACK_IDS } from '@jamming/shared-types';
 import type {
   BlinksAdapter,
   BlinksAdapterConfig,
@@ -139,15 +140,20 @@ export function createBlinksActionsAdapter(
                   label: 'Track',
                   type: 'select',
                   required: true,
-                  options: [
-                    { label: 'kick', value: 'kick', selected: true },
-                    { label: 'snare', value: 'snare' },
-                    { label: 'hat_closed', value: 'hat_closed' },
-                    { label: 'hat_open', value: 'hat_open' },
-                    { label: 'clap', value: 'clap' },
-                  ],
+                  options: TRACK_IDS.map((trackId, index) => ({
+                    label: trackId,
+                    value: trackId,
+                    ...(index === 0 ? { selected: true } : {}),
+                  })),
                 },
-                { name: 'stepIndex', label: 'Step Index', type: 'number', min: 0, max: 15, required: true },
+                {
+                  name: 'stepIndex',
+                  label: 'Step Index',
+                  type: 'number',
+                  min: 0,
+                  max: STEPS_PER_PATTERN_V1 - 1,
+                  required: true,
+                },
                 {
                   name: 'willBeActive',
                   label: 'Will be active?',
@@ -157,6 +163,13 @@ export function createBlinksActionsAdapter(
                     { label: 'true', value: 'true', selected: true },
                     { label: 'false', value: 'false' },
                   ],
+                },
+                {
+                  name: 'stakeAmountUsdc',
+                  label: 'Stake (USDC 1e-6)',
+                  type: 'number',
+                  min: 1,
+                  required: true,
                 },
               ],
             },
@@ -199,10 +212,12 @@ export function createBlinksActionsAdapter(
       const trackId = typeof input.params?.trackId === 'string' ? input.params.trackId : 'kick';
       const stepIndex = typeof input.params?.stepIndex === 'string' ? input.params.stepIndex : '0';
       const willBeActive = typeof input.params?.willBeActive === 'string' ? input.params.willBeActive : 'true';
+      const stakeAmountUsdc =
+        typeof input.params?.stakeAmountUsdc === 'string' ? input.params.stakeAmountUsdc : '100000';
 
       return buildMemoActionPostResponse(
         input.account,
-        `jamming.fun|blink-predict|${input.roomId}|${input.roundId}|${trackId}|${stepIndex}|${willBeActive}|${input.account}`,
+        `jamming.fun|blink-predict|${input.roomId}|${input.roundId}|${trackId}|${stepIndex}|${willBeActive}|${stakeAmountUsdc}|${input.account}`,
         'Sign prediction proof',
       );
     },

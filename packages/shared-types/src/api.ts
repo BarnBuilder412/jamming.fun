@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   commitPayloadSchema,
+  predictionGuessSchema,
   predictionPayloadSchema,
   revealPayloadSchema,
   roundSummarySchema,
@@ -38,9 +39,25 @@ export const commitRequestSchema = commitPayloadSchema;
 export const commitResponseSchema = z.object({ round: roundSummarySchema });
 
 export const predictionRequestSchema = predictionPayloadSchema;
+
+export const predictionBatchRequestSchema = z.object({
+  userWallet: z.string().min(20),
+  stakeAmountUsdc: z.number().int().positive(),
+  guesses: z.array(predictionGuessSchema).min(1).max(64),
+  sessionProof: z.string().min(1).optional(),
+});
+
 export const predictionResponseSchema = z.object({
   accepted: z.literal(true),
   predictionCount: z.number().int().nonnegative(),
+  totalStakedUsdc: z.number().int().nonnegative(),
+});
+
+export const predictionBatchResponseSchema = z.object({
+  accepted: z.literal(true),
+  acceptedCount: z.number().int().positive(),
+  predictionCount: z.number().int().nonnegative(),
+  totalStakedUsdc: z.number().int().nonnegative(),
 });
 
 export const lockResponseSchema = z.object({ round: roundSummarySchema });
@@ -52,6 +69,20 @@ export const revealResponseSchema = z.object({
 export const settleResponseSchema = z.object({ settlement: settlementResultSchema });
 export const resultsResponseSchema = z.object({ settlement: settlementResultSchema });
 
+export const integrationStatusResponseSchema = z.object({
+  integrations: z.record(
+    z.object({
+      provider: z.string(),
+      enabled: z.boolean(),
+      ready: z.boolean(),
+      mode: z.string(),
+      details: z.string().optional(),
+      lastReference: z.string().optional(),
+      lastError: z.string().optional(),
+    }),
+  ),
+});
+
 export type CreateRoomRequest = z.infer<typeof createRoomRequestSchema>;
 export type RoomResponse = z.infer<typeof roomResponseSchema>;
 export type StartRoundRequest = z.infer<typeof startRoundRequestSchema>;
@@ -59,9 +90,12 @@ export type StartRoundResponse = z.infer<typeof startRoundResponseSchema>;
 export type CommitRequest = z.infer<typeof commitRequestSchema>;
 export type CommitResponse = z.infer<typeof commitResponseSchema>;
 export type PredictionRequest = z.infer<typeof predictionRequestSchema>;
+export type PredictionBatchRequest = z.infer<typeof predictionBatchRequestSchema>;
 export type PredictionResponse = z.infer<typeof predictionResponseSchema>;
+export type PredictionBatchResponse = z.infer<typeof predictionBatchResponseSchema>;
 export type LockResponse = z.infer<typeof lockResponseSchema>;
 export type RevealRequest = z.infer<typeof revealRequestSchema>;
 export type RevealResponse = z.infer<typeof revealResponseSchema>;
 export type SettleResponse = z.infer<typeof settleResponseSchema>;
 export type ResultsResponse = z.infer<typeof resultsResponseSchema>;
+export type IntegrationStatusResponse = z.infer<typeof integrationStatusResponseSchema>;

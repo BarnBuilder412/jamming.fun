@@ -26,6 +26,10 @@ enum TrackId {
   hat_closed
   hat_open
   clap
+  tom_low
+  tom_high
+  rim
+  keyboard
 }
 
 model User {

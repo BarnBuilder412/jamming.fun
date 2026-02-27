@@ -2,6 +2,9 @@ import type {
   CommitRequest,
   CommitResponse,
   CreateRoomRequest,
+  IntegrationStatusResponse,
+  PredictionBatchRequest,
+  PredictionBatchResponse,
   PredictionRequest,
   PredictionResponse,
   RevealRequest,
@@ -87,6 +90,12 @@ export const apiClient = {
       body: JSON.stringify(input),
     });
   },
+  predictBatch(roomId: string, roundId: string, input: PredictionBatchRequest) {
+    return requestJson<PredictionBatchResponse>(`/rooms/${roomId}/rounds/${roundId}/predictions/batch`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
   lock(roomId: string, roundId: string) {
     return requestJson<{ round: CommitResponse['round'] }>(`/rooms/${roomId}/rounds/${roundId}/lock`, {
       method: 'POST',
@@ -135,6 +144,9 @@ export const apiClient = {
         body: JSON.stringify({ roomId, roundId, userWallet }),
       },
     );
+  },
+  integrationStatus() {
+    return requestJson<IntegrationStatusResponse>('/integrations/status');
   },
   health() {
     return fetch(webEnv.apiBaseUrl.replace(/\/api\/v1\/?$/, '/healthz')).then(

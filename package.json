@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.5.2",
   "scripts": {
-    "dev": "turbo run dev --parallel",
+    "dev": "dotenv -e .env -- turbo run dev --parallel",
     "dev:web": "pnpm --filter @jamming/web dev",
     "dev:api": "pnpm --filter @jamming/api dev",
     "build": "turbo run build",

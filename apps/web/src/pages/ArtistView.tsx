@@ -1,15 +1,21 @@
-import { startTransition, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { createWebAudioDrumEngine, type DrumEngineOutputMode, type DrumEngineState } from '@jamming/audio-engine';
+import { startTransition, useEffect, useEffectEvent, useRef, useState, type CSSProperties } from 'react';
+import {
+    createWebAudioDrumEngine,
+    type DrumEngineOutputMode,
+    type DrumEngineState,
+} from '@jamming/audio-engine';
 import { createEmptyPatternV1, hashPatternCommitInput } from '@jamming/pattern-core';
 import type { PatternV1, SettlementResult, TrackId, WsEventEnvelope } from '@jamming/shared-types';
 import { TRACK_IDS } from '@jamming/shared-types';
-import { createBlinkActionUrls, getSolanaRpcUrl } from '@jamming/solana';
+import { createBlinkActionUrls } from '@jamming/solana';
 import { Button, Panel, Pill, jamThemeVars } from '@jamming/ui';
 import { apiClient } from '../lib/apiClient';
 import { webEnv } from '../lib/env';
+import { TRACK_VISUALS } from '../lib/trackVisuals';
 import { usePlayhead } from '../hooks/usePlayhead';
 import { useRoomSocket } from '../hooks/useRoomSocket';
 import { useNavigate } from 'react-router-dom';
+import { useSolanaWallet } from '../hooks/useSolanaWallet';
 
 type RoomView = Awaited<ReturnType<typeof apiClient.createRoom>>['room'];
 
@@ -18,19 +24,39 @@ type PendingReveal = {
     roundId: string;
 };
 
-const DEFAULT_ARTIST_WALLET = 'HDTU6CkVUvtju76qMNGTRVQn3LS2HKLWbx446BrkgvfA';
 const DEFAULT_USER_WALLET = 'GwYEwPSdiqNbRAFyHc9XKFEVAZQYBiBFLii7JAdCfYZL';
+
+function parseUsdcToMinor(input: string): number | null {
+    const normalized = input.trim();
+    if (!/^\d+(\.\d{0,6})?$/.test(normalized)) {
+        return null;
+    }
+    const [wholePart, fractionPart = ''] = normalized.split('.');
+    const paddedFraction = `${fractionPart}000000`.slice(0, 6);
+    const whole = Number(wholePart);
+    const fraction = Number(paddedFraction);
+    if (!Number.isFinite(whole) || !Number.isFinite(fraction)) {
+        return null;
+    }
+    const result = whole * 1_000_000 + fraction;
+    return Number.isInteger(result) && result > 0 ? result : null;
+}
+
+function formatUsdcMinor(amount: number): string {
+    return (amount / 1_000_000).toFixed(2);
+}
 
 export function ArtistView() {
     const navigate = useNavigate();
     const [pattern, setPattern] = useState<PatternV1>(() => createEmptyPatternV1(120));
+    const [gridSize, setGridSize] = useState<16 | 32>(32);
     const [bpm, setBpm] = useState(120);
     const [isPlaying, setIsPlaying] = useState(false);
     const [room, setRoom] = useState<RoomView | null>(null);
     const [settlement, setSettlement] = useState<SettlementResult | null>(null);
     const [pendingReveal, setPendingReveal] = useState<PendingReveal | null>(null);
-    const [walletConnected, setWalletConnected] = useState(false);
     const [predictionWallet, setPredictionWallet] = useState(DEFAULT_USER_WALLET);
+    const [predictionStakeInput, setPredictionStakeInput] = useState('0.10');
     const [predictionTrack, setPredictionTrack] = useState<TrackId>('kick');
     const [predictionStep, setPredictionStep] = useState(0);
     const [predictionWillBeActive, setPredictionWillBeActive] = useState(true);
@@ -48,8 +74,9 @@ export function ArtistView() {
         claim?: string;
     } | null>(null);
     const [claimReference, setClaimReference] = useState<string | null>(null);
+    const wallet = useSolanaWallet();
 
-    const playheadStep = usePlayhead(bpm, isPlaying);
+    const playheadStep = usePlayhead(bpm, isPlaying, gridSize);
     const roomRef = useRef<RoomView | null>(null);
     const patternRef = useRef(pattern);
     const lastTriggeredStepRef = useRef<number | null>(null);
@@ -91,6 +118,10 @@ export function ArtistView() {
     useEffect(() => {
         audioEngineRef.current?.setMasterGain(audioVolume / 100);
     }, [audioVolume]);
+
+    useEffect(() => {
+        setPredictionStep((current) => Math.min(current, gridSize - 1));
+    }, [gridSize]);
 
     useEffect(() => {
         if (!isPlaying) {
@@ -210,6 +241,12 @@ export function ArtistView() {
         previewTrack(trackId);
     };
 
+    const cyclePredictionTrack = (direction: -1 | 1) => {
+        const currentIndex = TRACK_IDS.indexOf(predictionTrack);
+        const nextIndex = (currentIndex + direction + TRACK_IDS.length) % TRACK_IDS.length;
+        setPredictionTrack(TRACK_IDS[nextIndex]!);
+    };
+
     const withBusy = async (label: string, fn: () => Promise<void>) => {
         setBusyAction(label);
         setError(null);
@@ -255,7 +292,7 @@ export function ArtistView() {
         void withBusy('create-room', async () => {
             const response = await apiClient.createRoom({
                 title: 'Judge Demo Room',
-                artistWallet: walletConnected ? DEFAULT_ARTIST_WALLET : undefined,
+                artistWallet: wallet.connected ? wallet.publicKey ?? undefined : undefined,
                 audiusHandle: 'audius',
             });
             setRoom(response.room);
@@ -299,15 +336,20 @@ export function ArtistView() {
         }
 
         void withBusy('predict', async () => {
+            const stakeAmountUsdc = parseUsdcToMinor(predictionStakeInput);
+            if (!stakeAmountUsdc) {
+                throw new Error('Invalid USDC stake amount. Use up to 6 decimals.');
+            }
             const response = await apiClient.predict(room.id, currentRound.id, {
                 userWallet: predictionWallet,
+                stakeAmountUsdc,
                 guess: {
                     trackId: predictionTrack,
                     stepIndex: predictionStep,
                     willBeActive: predictionWillBeActive,
                 },
             });
-            log(`Prediction submitted (${response.predictionCount} total)`);
+            log(`Prediction submitted (${response.predictionCount} total, $${formatUsdcMinor(response.totalStakedUsdc)} staked)`);
         });
     };
 
@@ -369,7 +411,7 @@ export function ArtistView() {
             if (!activeRoom) {
                 const created = await apiClient.createRoom({
                     title: 'Judge Demo Room',
-                    artistWallet: walletConnected ? DEFAULT_ARTIST_WALLET : undefined,
+                    artistWallet: wallet.connected ? wallet.publicKey ?? undefined : undefined,
                     audiusHandle: 'audius',
                 });
                 activeRoom = created.room;
@@ -408,8 +450,13 @@ export function ArtistView() {
             }
 
             if (activeRound.phase === 'prediction_open') {
+                const stakeAmountUsdc = parseUsdcToMinor(predictionStakeInput);
+                if (!stakeAmountUsdc) {
+                    throw new Error('Invalid prediction stake amount');
+                }
                 await apiClient.predict(activeRoom.id, activeRound.id, {
                     userWallet: predictionWallet,
+                    stakeAmountUsdc,
                     guess: { trackId: predictionTrack, stepIndex: predictionStep, willBeActive: predictionWillBeActive },
                 });
                 log('Prediction submitted');
@@ -508,11 +555,19 @@ export function ArtistView() {
                             <span className="share-badge-copy">{codeCopied ? '✓ Copied!' : '📋 Copy Link'}</span>
                         </div>
                     )}
-                    <Pill tone={walletConnected ? 'success' : 'default'}>{walletConnected ? 'Wallet connected' : 'Wallet disconnected'}</Pill>
-                    <Button variant="ghost" onClick={() => setWalletConnected((current) => !current)}>
-                        {walletConnected ? 'Disconnect Wallet' : 'Connect Wallet'}
-                    </Button>
-                    <Button variant="ghost" onClick={() => navigate('/')}>← Home</Button>
+                    <Pill tone={wallet.connected ? 'success' : wallet.status === 'unsupported' ? 'danger' : 'default'}>
+                        {wallet.connected ? 'Wallet connected' : wallet.status}
+                    </Pill>
+                    {wallet.connected ? (
+                        <Button variant="ghost" onClick={() => void wallet.disconnect()}>
+                            Disconnect Wallet
+                        </Button>
+                    ) : (
+                        <Button variant="ghost" onClick={() => void wallet.connect()} disabled={wallet.status === 'unsupported'}>
+                            Connect Wallet
+                        </Button>
+                    )}
+                    <Button variant="ghost" onClick={() => { void navigate('/'); }}>← Home</Button>
                 </div>
             </header>
 
@@ -540,7 +595,12 @@ export function ArtistView() {
                                 />
                                 <strong>{bpm}</strong>
                             </label>
-                            <Pill tone="accent">Step {playheadStep + 1}/16</Pill>
+                            <div className="grid-size-toggle">
+                                <span>Grid</span>
+                                <Button variant={gridSize === 16 ? 'primary' : 'ghost'} onClick={() => setGridSize(16)}>16</Button>
+                                <Button variant={gridSize === 32 ? 'primary' : 'ghost'} onClick={() => setGridSize(32)}>32</Button>
+                            </div>
+                            <Pill tone="accent">Step {playheadStep + 1}/{gridSize}</Pill>
                             <Pill tone={audioState === 'ready' ? 'success' : audioState === 'unsupported' ? 'danger' : 'default'}>
                                 Audio: {audioState}{audioState === 'ready' ? ` (${audioOutputMode})` : ''}
                             </Pill>
@@ -560,9 +620,12 @@ export function ArtistView() {
                         <div className="sequencer-grid" role="grid" aria-label="Drum sequencer">
                             {TRACK_IDS.map((trackId) => (
                                 <div key={trackId} className="track-row" role="row">
-                                    <div className="track-label">{trackId.replace('_', ' ')}</div>
-                                    <div className="pads">
-                                        {Array.from({ length: 16 }, (_, stepIndex) => {
+                                    <div className="track-label">
+                                        <span className="track-icon">{TRACK_VISUALS[trackId].icon}</span>
+                                        <span>{TRACK_VISUALS[trackId].label}</span>
+                                    </div>
+                                    <div className="pads" style={{ '--grid-columns': gridSize } as CSSProperties}>
+                                        {Array.from({ length: gridSize }, (_, stepIndex) => {
                                             const track = pattern.tracks.find((item) => item.id === trackId)!;
                                             const step = track.steps[stepIndex]!;
                                             const isActive = step.active;
@@ -614,21 +677,34 @@ export function ArtistView() {
                                 <input value={predictionWallet} onChange={(event) => setPredictionWallet(event.currentTarget.value)} />
                             </label>
                             <label>
+                                <span>Stake per tile (USDC)</span>
+                                <input
+                                    value={predictionStakeInput}
+                                    onChange={(event) => setPredictionStakeInput(event.currentTarget.value)}
+                                    inputMode="decimal"
+                                    placeholder="0.10"
+                                />
+                            </label>
+                            <label>
                                 <span>Track</span>
-                                <select value={predictionTrack} onChange={(event) => setPredictionTrack(event.currentTarget.value as TrackId)}>
-                                    {TRACK_IDS.map((trackId) => (
-                                        <option key={trackId} value={trackId}>{trackId}</option>
-                                    ))}
-                                </select>
+                                <div className="inline-track-picker">
+                                    <Button variant="ghost" onClick={() => cyclePredictionTrack(-1)}>Prev</Button>
+                                    <strong>{predictionTrack}</strong>
+                                    <Button variant="ghost" onClick={() => cyclePredictionTrack(1)}>Next</Button>
+                                </div>
                             </label>
                             <label>
                                 <span>Step index</span>
                                 <input
                                     type="number"
                                     min={0}
-                                    max={15}
+                                    max={gridSize - 1}
                                     value={predictionStep}
-                                    onChange={(event) => setPredictionStep(Math.max(0, Math.min(15, Number(event.currentTarget.value))))}
+                                    onChange={(event) =>
+                                        setPredictionStep(
+                                            Math.max(0, Math.min(gridSize - 1, Number(event.currentTarget.value))),
+                                        )
+                                    }
                                 />
                             </label>
                             <label className="toggle-row">
@@ -650,6 +726,8 @@ export function ArtistView() {
                             <div><span>Round:</span> <strong>{currentRound ? currentRound.index + 1 : 'n/a'}</strong></div>
                             <div><span>Phase:</span> <Pill tone={currentRound?.phase === 'settled' ? 'success' : 'accent'}>{currentRound?.phase ?? 'idle'}</Pill></div>
                             <div><span>Predictions:</span> <strong>{currentRound?.predictionCount ?? 0}</strong></div>
+                            <div><span>Total Staked:</span> <strong>${formatUsdcMinor(currentRound?.totalStakedUsdc ?? 0)}</strong></div>
+                            <div><span>Winner Pot:</span> <strong>${formatUsdcMinor(currentRound?.winnerPotUsdc ?? 0)}</strong></div>
                             <div><span>Commit verified:</span> <strong>{currentRound?.commitVerified === null || currentRound?.commitVerified === undefined ? 'n/a' : String(currentRound.commitVerified)}</strong></div>
                             <div><span>WebSocket:</span> <Pill tone={wsStatus === 'open' ? 'success' : wsStatus === 'error' ? 'danger' : 'default'}>{wsStatus}</Pill></div>
                         </div>
@@ -662,14 +740,18 @@ export function ArtistView() {
                                     <Pill tone={settlement.commitVerified ? 'success' : 'danger'}>
                                         {settlement.commitVerified ? 'Commit verified' : 'Commit invalid'}
                                     </Pill>
-                                    <span>{settlement.winningPredictions}/{settlement.totalPredictions} winning</span>
+                                    <span>
+                                        {settlement.winningPredictions}/{settlement.totalPredictions} winning • Winner pot $
+                                        {formatUsdcMinor(settlement.economics.winnerPotUsdc)}
+                                    </span>
                                 </div>
                                 <ul className="leaderboard-list">
                                     {settlement.leaderboard.map((entry) => (
                                         <li key={entry.userWallet}>
                                             <code>{entry.userWallet}</code>
                                             <span>{entry.correctPredictions} correct</span>
-                                            <strong>{entry.rewardUnits} units</strong>
+                                            <strong>${formatUsdcMinor(entry.usdcWon)}</strong>
+                                            <span>{entry.rewardUnits} units</span>
                                         </li>
                                     ))}
                                 </ul>

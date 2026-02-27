@@ -134,6 +134,10 @@ select {
   width: 96px;
 }
 
+.volume-control select {
+  min-width: 108px;
+}
+
 .sequencer-grid {
   display: grid;
   gap: 0.4rem;
@@ -147,16 +151,46 @@ select {
 }
 
 .track-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   color: #e5e7eb;
   font-size: 0.82rem;
+  letter-spacing: 0.03em;
+}
+
+.track-icon {
+  min-width: 26px;
+  height: 20px;
+  padding: 0 0.35rem;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.14);
+  color: #fbbf24;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.grid-size-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: 0.25rem;
+}
+
+.grid-size-toggle span {
+  color: #d1d5db;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 .pads {
   display: grid;
-  grid-template-columns: repeat(16, minmax(16px, 1fr));
-  gap: 0.25rem;
+  grid-template-columns: repeat(var(--grid-columns, 32), minmax(10px, 1fr));
+  gap: 0.2rem;
 }
 
 .pad {
@@ -232,6 +266,20 @@ select {
   color: #f5f4ee;
   border-radius: 8px;
   padding: 0.55rem 0.65rem;
+}
+
+.inline-track-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.inline-track-picker strong {
+  color: #f9fafb;
+  text-transform: uppercase;
+  font-size: 0.84rem;
+  letter-spacing: 0.04em;
 }
 
 .toggle-row {
@@ -700,6 +748,17 @@ select {
   font-size: 0.82rem;
 }
 
+.stake-input-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #d1d5db;
+}
+
+.stake-input-row input {
+  width: 100px;
+}
+
 /* ─── Wallet Row ─── */
 
 .wallet-row {
@@ -748,4 +807,3 @@ select {
     flex-direction: column;
   }
 }
-

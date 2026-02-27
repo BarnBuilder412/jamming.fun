@@ -10,7 +10,8 @@
     "build": "tsc --noEmit",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "setup-soar": "node scripts/setup-soar.mjs"
   },
   "dependencies": {
     "@audius/sdk": "^13.1.0",

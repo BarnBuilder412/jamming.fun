@@ -1,8 +1,9 @@
-import { settleRound as settleRoundCore, verifyCommitReveal } from '@jamming/game-core';
+import { settleRound as settleRoundCore, splitStakeUsdc, verifyCommitReveal } from '@jamming/game-core';
 import type {
   CommitPayload,
   CreateRoomRequest,
   PatternV1,
+  PredictionBatchRequest,
   PredictionPayload,
   RevealPayload,
   RoomResponse,
@@ -40,6 +41,8 @@ type StoredRoom = {
   createdAt: Date;
   updatedAt: Date;
   currentRoundId: string | null;
+  pendingWinnerPotRolloverUsdc: number;
+  pendingLiquidityRolloverUsdc: number;
 };
 
 type StoredRound = {
@@ -54,6 +57,8 @@ type StoredRound = {
   lockedAt: Date | null;
   revealedAt: Date | null;
   settledAt: Date | null;
+  winnerPotCarryInUsdc: number;
+  liquidityCarryInUsdc: number;
   predictions: StoredPrediction[];
   reveal: {
     pattern: PatternV1;
@@ -66,6 +71,25 @@ type StoredRound = {
 export type RoomSnapshot = StoredRoom;
 export type RoundSnapshot = StoredRound;
 export type PredictionSnapshot = StoredPrediction;
+
+function getRoundStakeMetrics(round: StoredRound) {
+  let totalStakedUsdc = 0;
+  let artistPendingUsdc = 0;
+  let winnerPotFromStakesUsdc = 0;
+
+  for (const prediction of round.predictions) {
+    totalStakedUsdc += prediction.stakeAmountUsdc;
+    const split = splitStakeUsdc(prediction.stakeAmountUsdc);
+    artistPendingUsdc += split.artistPendingUsdc;
+    winnerPotFromStakesUsdc += split.winnerPotUsdc;
+  }
+
+  return {
+    totalStakedUsdc,
+    artistPendingUsdc,
+    winnerPotUsdc: winnerPotFromStakesUsdc + round.winnerPotCarryInUsdc,
+  };
+}
 
 export class GameStore {
   private readonly rooms = new Map<string, StoredRoom>();
@@ -85,6 +109,8 @@ export class GameStore {
       createdAt: now,
       updatedAt: now,
       currentRoundId: null,
+      pendingWinnerPotRolloverUsdc: 0,
+      pendingLiquidityRolloverUsdc: 0,
     };
 
     this.rooms.set(room.id, room);
@@ -170,10 +196,15 @@ export class GameStore {
       lockedAt: null,
       revealedAt: null,
       settledAt: null,
+      winnerPotCarryInUsdc: room.pendingWinnerPotRolloverUsdc,
+      liquidityCarryInUsdc: room.pendingLiquidityRolloverUsdc,
       predictions: [],
       reveal: null,
       settlement: null,
     };
+
+    room.pendingWinnerPotRolloverUsdc = 0;
+    room.pendingLiquidityRolloverUsdc = 0;
 
     this.rounds.set(round.id, round);
     this.roomRoundOrder.set(roomId, [...roundIds, round.id]);
@@ -199,10 +230,18 @@ export class GameStore {
     return this.toRoundSummary(round);
   }
 
-  addPrediction(roomId: string, roundId: string, input: PredictionPayload): { predictionCount: number; round: RoundSummary; prediction: StoredPrediction } {
+  addPrediction(
+    roomId: string,
+    roundId: string,
+    input: PredictionPayload,
+  ): { predictionCount: number; totalStakedUsdc: number; round: RoundSummary; prediction: StoredPrediction } {
     const round = this.getRoundSnapshot(roomId, roundId);
     if (round.phase !== 'prediction_open') {
       throw new StoreError(409, `Predictions are closed (current phase: ${round.phase})`);
+    }
+
+    if (!Number.isInteger(input.stakeAmountUsdc) || input.stakeAmountUsdc <= 0) {
+      throw new StoreError(400, 'stakeAmountUsdc must be a positive integer');
     }
 
     const duplicate = round.predictions.find(
@@ -222,10 +261,62 @@ export class GameStore {
     };
 
     round.predictions.push(prediction);
+    const metrics = getRoundStakeMetrics(round);
     return {
       predictionCount: round.predictions.length,
+      totalStakedUsdc: metrics.totalStakedUsdc,
       round: this.toRoundSummary(round),
       prediction,
+    };
+  }
+
+  addPredictionsBatch(
+    roomId: string,
+    roundId: string,
+    input: PredictionBatchRequest,
+  ): { acceptedCount: number; predictionCount: number; totalStakedUsdc: number; round: RoundSummary; predictions: StoredPrediction[] } {
+    const round = this.getRoundSnapshot(roomId, roundId);
+    if (round.phase !== 'prediction_open') {
+      throw new StoreError(409, `Predictions are closed (current phase: ${round.phase})`);
+    }
+
+    const dedupe = new Set<string>();
+    for (const guess of input.guesses) {
+      const tileKey = `${guess.trackId}:${guess.stepIndex}`;
+      if (dedupe.has(tileKey)) {
+        throw new StoreError(409, `Duplicate tile in batch payload: ${tileKey}`);
+      }
+      dedupe.add(tileKey);
+
+      const existing = round.predictions.find(
+        (prediction) =>
+          prediction.userWallet === input.userWallet &&
+          prediction.guess.trackId === guess.trackId &&
+          prediction.guess.stepIndex === guess.stepIndex,
+      );
+      if (existing) {
+        throw new StoreError(409, `Duplicate prediction for tile: ${tileKey}`);
+      }
+    }
+
+    const predictions: StoredPrediction[] = [];
+    for (const guess of input.guesses) {
+      const created = this.addPrediction(roomId, roundId, {
+        userWallet: input.userWallet,
+        stakeAmountUsdc: input.stakeAmountUsdc,
+        guess,
+        ...(input.sessionProof ? { sessionProof: input.sessionProof } : {}),
+      });
+      predictions.push(created.prediction);
+    }
+
+    const metrics = getRoundStakeMetrics(round);
+    return {
+      acceptedCount: predictions.length,
+      predictionCount: round.predictions.length,
+      totalStakedUsdc: metrics.totalStakedUsdc,
+      round: this.toRoundSummary(round),
+      predictions,
     };
   }
 
@@ -272,6 +363,7 @@ export class GameStore {
   }
 
   settleRound(roomId: string, roundId: string): SettleResponse['settlement'] {
+    const room = this.getRoomSnapshot(roomId);
     const round = this.getRoundSnapshot(roomId, roundId);
     if (round.phase !== 'revealed') {
       throw new StoreError(409, `Settlement only allowed in revealed phase (current: ${round.phase})`);
@@ -287,8 +379,11 @@ export class GameStore {
       roundId,
       commitVerified: round.reveal.commitVerified,
       pattern: round.reveal.pattern,
+      winnerPotCarryInUsdc: round.winnerPotCarryInUsdc,
+      liquidityCarryInUsdc: round.liquidityCarryInUsdc,
       predictions: round.predictions.map((prediction) => ({
         userWallet: prediction.userWallet,
+        stakeAmountUsdc: prediction.stakeAmountUsdc,
         guess: prediction.guess,
       })),
     });
@@ -296,6 +391,9 @@ export class GameStore {
     round.settlement = settlement;
     round.phase = 'settled';
     round.settledAt = new Date();
+
+    room.pendingWinnerPotRolloverUsdc += settlement.economics.winnerPotRolloverUsdc;
+    room.pendingLiquidityRolloverUsdc += settlement.economics.liquidityRolloverUsdc;
 
     return settlement;
   }
@@ -353,6 +451,8 @@ export class GameStore {
   }
 
   toRoundSummary(round: StoredRound): RoundSummary {
+    const metrics = getRoundStakeMetrics(round);
+
     return {
       id: round.id,
       roomId: round.roomId,
@@ -362,6 +462,11 @@ export class GameStore {
       commitHash: round.commitHash,
       predictionCount: round.predictions.length,
       commitVerified: round.reveal?.commitVerified ?? null,
+      totalStakedUsdc: metrics.totalStakedUsdc,
+      winnerPotUsdc: metrics.winnerPotUsdc,
+      artistPendingUsdc: metrics.artistPendingUsdc,
+      winnerPotCarryInUsdc: round.winnerPotCarryInUsdc,
+      liquidityCarryInUsdc: round.liquidityCarryInUsdc,
       startedAt: round.startedAt.toISOString(),
       lockedAt: round.lockedAt?.toISOString() ?? null,
       revealedAt: round.revealedAt?.toISOString() ?? null,

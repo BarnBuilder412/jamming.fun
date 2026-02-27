@@ -14,7 +14,7 @@ export function LandingPage() {
             return;
         }
         setError(null);
-        navigate(`/room/${code}`);
+        void navigate(`/room/${code}`);
     };
 
     return (
@@ -30,7 +30,7 @@ export function LandingPage() {
                     </h1>
                     <p className="landing-subtitle">
                         Artists create beats in real-time. Listeners predict the next pattern.
-                        Winners earn rewards on Solana.
+                        Winners earn USDC payouts plus room token rewards on Solana.
                     </p>
                 </div>
 
@@ -41,24 +41,24 @@ export function LandingPage() {
                             You control the round lifecycle — commit, lock, reveal, and settle.
                         </p>
                         <div className="landing-card-features">
-                            <span>✦ 5-track drum sequencer</span>
-                            <span>✦ Real-time audio synthesis</span>
+                            <span>✦ 9-lane sequencer + 16/32 grid toggle</span>
+                            <span>✦ Real-time audio synthesis + samples</span>
                             <span>✦ Cryptographic commit-reveal</span>
                             <span>✦ Shareable room code</span>
                         </div>
-                        <Button onClick={() => navigate('/artist')}>Create a Room</Button>
+                        <Button onClick={() => { void navigate('/artist'); }}>Create a Room</Button>
                     </Panel>
 
                     <Panel title="🎯 I'm a Listener" subtitle="Join a room and predict the beats">
                         <p className="landing-card-desc">
                             Enter the room code shared by an artist. Watch the beats in real-time and predict which steps will
-                            be active. Earn reward units for correct predictions!
+                            be active. Earn instant USDC winner-pot payouts for correct predictions.
                         </p>
                         <div className="landing-card-features">
                             <span>✦ Live beat visualization</span>
                             <span>✦ Tap-to-predict grid</span>
                             <span>✦ Real-time leaderboard</span>
-                            <span>✦ Track token rewards</span>
+                            <span>✦ USDC + room token rewards</span>
                         </div>
                         <div className="join-form">
                             <input

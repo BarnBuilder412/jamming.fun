@@ -1,4 +1,5 @@
 import type { ActionGetResponse, ActionPostResponse } from '@solana/actions';
+import { STEPS_PER_PATTERN_V1, TRACK_IDS } from '@jamming/shared-types';
 import {
   createActionHeaders,
   createPostResponse,
@@ -224,15 +225,20 @@ export function createNoopBlinksAdapter(flags: IntegrationFlags, config: BlinksA
                   label: 'Track',
                   type: 'select',
                   required: true,
-                  options: [
-                    { label: 'kick', value: 'kick', selected: true },
-                    { label: 'snare', value: 'snare' },
-                    { label: 'hat_closed', value: 'hat_closed' },
-                    { label: 'hat_open', value: 'hat_open' },
-                    { label: 'clap', value: 'clap' },
-                  ],
+                  options: TRACK_IDS.map((trackId, index) => ({
+                    label: trackId,
+                    value: trackId,
+                    ...(index === 0 ? { selected: true } : {}),
+                  })),
                 },
-                { name: 'stepIndex', label: 'Step (0-15)', type: 'number', min: 0, max: 15, required: true },
+                {
+                  name: 'stepIndex',
+                  label: `Step (0-${STEPS_PER_PATTERN_V1 - 1})`,
+                  type: 'number',
+                  min: 0,
+                  max: STEPS_PER_PATTERN_V1 - 1,
+                  required: true,
+                },
                 {
                   name: 'willBeActive',
                   label: 'Will be active?',
@@ -242,6 +248,13 @@ export function createNoopBlinksAdapter(flags: IntegrationFlags, config: BlinksA
                     { label: 'true', value: 'true', selected: true },
                     { label: 'false', value: 'false' },
                   ],
+                },
+                {
+                  name: 'stakeAmountUsdc',
+                  label: 'Stake (USDC 1e-6)',
+                  type: 'number',
+                  min: 1,
+                  required: true,
                 },
               ],
             },
@@ -270,9 +283,10 @@ export function createNoopBlinksAdapter(flags: IntegrationFlags, config: BlinksA
       const trackId = typeof data.trackId === 'string' ? data.trackId : 'kick';
       const stepIndex = typeof data.stepIndex === 'string' ? data.stepIndex : '0';
       const willBeActive = typeof data.willBeActive === 'string' ? data.willBeActive : 'true';
+      const stakeAmountUsdc = typeof data.stakeAmountUsdc === 'string' ? data.stakeAmountUsdc : '100000';
       return buildMemoTx(
         input.account,
-        `jamming.fun|predict|${input.roomId}|${input.roundId}|${trackId}|${stepIndex}|${willBeActive}|${input.account}`,
+        `jamming.fun|predict|${input.roomId}|${input.roundId}|${trackId}|${stepIndex}|${willBeActive}|${stakeAmountUsdc}|${input.account}`,
         'Sign prediction proof',
       );
     },
@@ -296,4 +310,5 @@ export type SpecActionPostBody = ActionPostRequest<{
   trackId: string;
   stepIndex: string;
   willBeActive: string;
+  stakeAmountUsdc: string;
 }>;

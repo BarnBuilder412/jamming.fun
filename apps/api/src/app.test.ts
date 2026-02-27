@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { STEPS_PER_PATTERN_V1, TRACK_IDS } from '@jamming/shared-types';
 
 describe('api app', () => {
   let appPromise: Awaited<ReturnType<typeof buildApp>>;
@@ -44,15 +45,12 @@ describe('api app', () => {
 
     const pattern = {
       version: 1,
-      length: 16,
+      length: STEPS_PER_PATTERN_V1,
       bpm: 120,
-      tracks: [
-        { id: 'kick', steps: Array.from({ length: 16 }, (_, i) => ({ active: i === 0, velocity: 100 })) },
-        { id: 'snare', steps: Array.from({ length: 16 }, () => ({ active: false, velocity: 100 })) },
-        { id: 'hat_closed', steps: Array.from({ length: 16 }, () => ({ active: false, velocity: 100 })) },
-        { id: 'hat_open', steps: Array.from({ length: 16 }, () => ({ active: false, velocity: 100 })) },
-        { id: 'clap', steps: Array.from({ length: 16 }, () => ({ active: false, velocity: 100 })) },
-      ],
+      tracks: TRACK_IDS.map((trackId) => ({
+        id: trackId,
+        steps: Array.from({ length: STEPS_PER_PATTERN_V1 }, (_, i) => ({ active: trackId === 'kick' && i === 0, velocity: 100 })),
+      })),
     };
     const nonce = 'test_nonce';
 
@@ -76,6 +74,7 @@ describe('api app', () => {
           url: `/api/v1/rooms/${room.id}/rounds/${round.id}/predictions`,
           payload: {
             userWallet: 'wallet_user_12345678901234567890',
+            stakeAmountUsdc: 1_000_000,
             guess: { trackId: 'kick', stepIndex: 0, willBeActive: true },
           },
         })

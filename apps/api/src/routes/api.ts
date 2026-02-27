@@ -3,7 +3,10 @@ import { z } from 'zod';
 import {
   commitRequestSchema,
   createRoomRequestSchema,
+  integrationStatusResponseSchema,
   lockResponseSchema,
+  predictionBatchRequestSchema,
+  predictionBatchResponseSchema,
   predictionRequestSchema,
   predictionResponseSchema,
   revealRequestSchema,
@@ -126,15 +129,48 @@ export function registerApiRoutes(app: FastifyInstance, services: RuntimeService
       await services.prismaMirror.safe('sync-round-prediction', async () => {
         await services.prismaMirror.syncPrediction(params.roundId, result.prediction);
       });
+      emitRoomState(app, services, params.roomId);
       services.roomHub.emit(params.roomId, 'round.prediction.accepted', {
         roomId: params.roomId,
         roundId: params.roundId,
         predictionCount: result.predictionCount,
+        totalStakedUsdc: result.totalStakedUsdc,
       });
       return reply.send(
         predictionResponseSchema.parse({
           accepted: true,
           predictionCount: result.predictionCount,
+          totalStakedUsdc: result.totalStakedUsdc,
+        }),
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post('/api/v1/rooms/:roomId/rounds/:roundId/predictions/batch', async (request, reply) => {
+    try {
+      const params = parseOrThrow(roundParamsSchema, request.params);
+      const body = parseOrThrow(predictionBatchRequestSchema, request.body);
+      const result = services.store.addPredictionsBatch(params.roomId, params.roundId, body);
+      await services.prismaMirror.safe('sync-round-prediction-batch', async () => {
+        await Promise.all(
+          result.predictions.map((prediction) => services.prismaMirror.syncPrediction(params.roundId, prediction)),
+        );
+      });
+      emitRoomState(app, services, params.roomId);
+      services.roomHub.emit(params.roomId, 'round.prediction.accepted', {
+        roomId: params.roomId,
+        roundId: params.roundId,
+        predictionCount: result.predictionCount,
+        totalStakedUsdc: result.totalStakedUsdc,
+      });
+      return reply.send(
+        predictionBatchResponseSchema.parse({
+          accepted: true,
+          acceptedCount: result.acceptedCount,
+          predictionCount: result.predictionCount,
+          totalStakedUsdc: result.totalStakedUsdc,
         }),
       );
     } catch (error) {
@@ -252,6 +288,22 @@ export function registerApiRoutes(app: FastifyInstance, services: RuntimeService
       const params = parseOrThrow(roundParamsSchema, request.params);
       const settlement = services.store.getResults(params.roomId, params.roundId);
       return reply.send(resultsResponseSchema.parse({ settlement }));
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.get('/api/v1/integrations/status', async (_request, reply) => {
+    try {
+      return reply.send(
+        integrationStatusResponseSchema.parse({
+          integrations: {
+            magicBlock: services.integrations.magicBlock.getStatus(),
+            audius: services.integrations.audius.getStatus(),
+            blinks: services.integrations.blinks.getStatus(),
+          },
+        }),
+      );
     } catch (error) {
       return sendError(reply, error);
     }

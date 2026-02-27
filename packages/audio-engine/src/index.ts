@@ -1,4 +1,4 @@
-import type { PatternV1, TrackId } from '@jamming/shared-types';
+import { STEPS_PER_PATTERN_V1, type PatternV1, type TrackId } from '@jamming/shared-types';
 
 export type PlayheadListener = (stepIndex: number) => void;
 
@@ -9,7 +9,7 @@ export interface PlayheadController {
   subscribe(listener: PlayheadListener): () => void;
 }
 
-export function createIntervalPlayhead(initialBpm = 120, stepsPerPattern = 16): PlayheadController {
+export function createIntervalPlayhead(initialBpm = 120, stepsPerPattern: number = STEPS_PER_PATTERN_V1): PlayheadController {
   let bpm = initialBpm;
   let timer: ReturnType<typeof setInterval> | null = null;
   let currentStep = 0;
@@ -65,10 +65,50 @@ export function getActiveStepsForTrack(pattern: PatternV1, trackId: PatternV1['t
 
 export type DrumEngineState = 'unsupported' | 'locked' | 'loading' | 'ready' | 'closed' | 'error';
 export type DrumEngineOutputMode = 'none' | 'synth' | 'samples';
+export type DrumSoundPreset = 'drums' | 'electro' | 'melodic';
+export const SOUND_EFFECT_IDS = [
+  'kick',
+  'snare',
+  'hat_closed',
+  'hat_open',
+  'clap',
+  'tom_low',
+  'tom_high',
+  'rim',
+  'keyboard',
+] as const;
+export type SoundEffectId = (typeof SOUND_EFFECT_IDS)[number];
+export const SOUND_EFFECT_LABELS: Record<SoundEffectId, string> = {
+  kick: 'Kick',
+  snare: 'Snare',
+  hat_closed: 'Closed Hat',
+  hat_open: 'Open Hat',
+  clap: 'Clap',
+  tom_low: 'Low Tom',
+  tom_high: 'High Tom',
+  rim: 'Rim Click',
+  keyboard: 'Keyboard',
+};
+export const DEFAULT_TRACK_SOUND_MAP: Record<TrackId, SoundEffectId> = {
+  kick: 'kick',
+  snare: 'snare',
+  hat_closed: 'hat_closed',
+  hat_open: 'hat_open',
+  clap: 'clap',
+  tom_low: 'tom_low',
+  tom_high: 'tom_high',
+  rim: 'rim',
+  keyboard: 'keyboard',
+};
 
 export interface DrumEngine {
   getState(): DrumEngineState;
   getOutputMode(): DrumEngineOutputMode;
+  getSoundPreset(): DrumSoundPreset;
+  setSoundPreset(preset: DrumSoundPreset): void;
+  getTrackSound(trackId: TrackId): SoundEffectId;
+  setTrackSound(trackId: TrackId, sound: SoundEffectId): void;
+  listSoundEffects(): readonly SoundEffectId[];
   unlock(): Promise<DrumEngineState>;
   setMasterGain(value: number): void;
   triggerTrack(trackId: TrackId, velocity?: number): void;
@@ -79,6 +119,8 @@ export interface DrumEngine {
 export type WebAudioDrumEngineOptions = {
   sampleBaseUrl?: string;
   sampleManifest?: Partial<Record<TrackId, string>>;
+  soundPreset?: DrumSoundPreset;
+  initialTrackSounds?: Partial<Record<TrackId, SoundEffectId>>;
 };
 
 type BrowserAudioContext = AudioContext;
@@ -89,7 +131,7 @@ type TrackSampleMap = Map<TrackId, AudioBuffer>;
 
 const DEFAULT_SAMPLE_BASE_URL = '/samples/hydrogen-lite';
 
-const DEFAULT_SAMPLE_MANIFEST: Record<TrackId, string> = {
+const DEFAULT_SAMPLE_MANIFEST: Partial<Record<TrackId, string>> = {
   kick: 'kick.wav',
   snare: 'snare.wav',
   hat_closed: 'hat_closed.wav',
@@ -103,6 +145,10 @@ const TRACK_SAMPLE_GAIN: Record<TrackId, number> = {
   hat_closed: 0.52,
   hat_open: 0.48,
   clap: 0.72,
+  tom_low: 0.84,
+  tom_high: 0.76,
+  rim: 0.58,
+  keyboard: 0.68,
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -232,6 +278,95 @@ function triggerClap(context: BrowserAudioContext, destination: AudioNode, noise
   }
 }
 
+function triggerTom(
+  context: BrowserAudioContext,
+  destination: AudioNode,
+  frequency: number,
+  durationSeconds: number,
+  intensity: number,
+): void {
+  const now = safeCurrentTime(context);
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+  const filter = context.createBiquadFilter();
+
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(frequency * 1.25, now);
+  osc.frequency.exponentialRampToValueAtTime(frequency, now + durationSeconds * 0.6);
+
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(Math.max(180, frequency * 6), now);
+  filter.Q.value = 0.7;
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.62 * intensity, now + 0.002);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSeconds);
+
+  osc.connect(filter).connect(gain).connect(destination);
+  osc.start(now);
+  osc.stop(now + durationSeconds + 0.02);
+}
+
+function triggerRim(context: BrowserAudioContext, destination: AudioNode, intensity: number): void {
+  const now = safeCurrentTime(context);
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+  const filter = context.createBiquadFilter();
+
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(1760, now);
+  filter.type = 'highpass';
+  filter.frequency.setValueAtTime(2500, now);
+  filter.Q.value = 2.4;
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.42 * intensity, now + 0.001);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+
+  osc.connect(filter).connect(gain).connect(destination);
+  osc.start(now);
+  osc.stop(now + 0.035);
+}
+
+function triggerKeyboard(context: BrowserAudioContext, destination: AudioNode, intensity: number): void {
+  triggerChord(context, destination, 261.63, intensity);
+}
+
+function triggerTone(
+  context: BrowserAudioContext,
+  destination: AudioNode,
+  frequency: number,
+  durationSeconds: number,
+  intensity: number,
+  waveform: OscillatorType = 'sawtooth',
+): void {
+  const now = safeCurrentTime(context);
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+  const filter = context.createBiquadFilter();
+
+  osc.type = waveform;
+  osc.frequency.setValueAtTime(Math.max(30, frequency), now);
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(Math.max(300, frequency * 4), now);
+  filter.Q.value = 0.9;
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.7 * intensity, now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSeconds);
+
+  osc.connect(filter).connect(gain).connect(destination);
+  osc.start(now);
+  osc.stop(now + durationSeconds + 0.02);
+}
+
+function triggerChord(context: BrowserAudioContext, destination: AudioNode, rootHz: number, intensity: number): void {
+  const intervals = [1, 1.26, 1.5] as const;
+  for (const interval of intervals) {
+    triggerTone(context, destination, rootHz * interval, 0.26, intensity * 0.85, 'triangle');
+  }
+}
+
 async function fetchAndDecodeSample(
   context: BrowserAudioContext,
   url: string,
@@ -254,7 +389,9 @@ class WebAudioDrumEngine implements DrumEngine {
   private readonly sampleBuffers: TrackSampleMap = new Map();
   private sampleLoadError?: string;
   private readonly sampleBaseUrl: string;
-  private readonly sampleManifest: Record<TrackId, string>;
+  private readonly sampleManifest: Partial<Record<TrackId, string>>;
+  private soundPreset: DrumSoundPreset;
+  private trackSounds: Record<TrackId, SoundEffectId>;
   private openHatSampleSource: AudioBufferSourceNode | null = null;
   private openHatSampleGain: GainNode | null = null;
 
@@ -263,6 +400,11 @@ class WebAudioDrumEngine implements DrumEngine {
     this.sampleManifest = {
       ...DEFAULT_SAMPLE_MANIFEST,
       ...(options?.sampleManifest ?? {}),
+    };
+    this.soundPreset = options?.soundPreset ?? 'drums';
+    this.trackSounds = {
+      ...DEFAULT_TRACK_SOUND_MAP,
+      ...(options?.initialTrackSounds ?? {}),
     };
 
     if (!hasAudioContext()) {
@@ -356,6 +498,29 @@ class WebAudioDrumEngine implements DrumEngine {
     return this.outputMode;
   }
 
+  getSoundPreset(): DrumSoundPreset {
+    return this.soundPreset;
+  }
+
+  setSoundPreset(preset: DrumSoundPreset): void {
+    this.soundPreset = preset;
+  }
+
+  getTrackSound(trackId: TrackId): SoundEffectId {
+    return this.trackSounds[trackId] ?? DEFAULT_TRACK_SOUND_MAP[trackId];
+  }
+
+  setTrackSound(trackId: TrackId, sound: SoundEffectId): void {
+    this.trackSounds = {
+      ...this.trackSounds,
+      [trackId]: sound,
+    };
+  }
+
+  listSoundEffects(): readonly SoundEffectId[] {
+    return SOUND_EFFECT_IDS;
+  }
+
   async unlock(): Promise<DrumEngineState> {
     if (!this.context) {
       return this.getState();
@@ -398,16 +563,17 @@ class WebAudioDrumEngine implements DrumEngine {
   }
 
   private triggerSample(trackId: TrackId, intensity: number): boolean {
-    if (!this.context || !this.master || this.outputMode !== 'samples') {
+    if (!this.context || !this.master || this.outputMode !== 'samples' || this.soundPreset !== 'drums') {
       return false;
     }
 
-    const buffer = this.sampleBuffers.get(trackId);
+    const sound = this.getTrackSound(trackId);
+    const buffer = this.sampleBuffers.get(sound);
     if (!buffer) {
       return false;
     }
 
-    if (trackId === 'hat_closed') {
+    if (sound === 'hat_closed') {
       this.chokeOpenHat();
     }
 
@@ -415,12 +581,12 @@ class WebAudioDrumEngine implements DrumEngine {
     source.buffer = buffer;
     const gain = this.context.createGain();
     const now = safeCurrentTime(this.context);
-    const trackGain = TRACK_SAMPLE_GAIN[trackId] ?? 0.75;
+    const trackGain = TRACK_SAMPLE_GAIN[sound] ?? 0.75;
     gain.gain.setValueAtTime(clamp(intensity * trackGain, 0, 1.2), now);
     source.connect(gain).connect(this.master);
     source.start(now);
 
-    if (trackId === 'hat_open') {
+    if (sound === 'hat_open') {
       this.openHatSampleSource = source;
       this.openHatSampleGain = gain;
       source.onended = () => {
@@ -434,12 +600,12 @@ class WebAudioDrumEngine implements DrumEngine {
     return true;
   }
 
-  private triggerSynth(trackId: TrackId, intensity: number): void {
+  private triggerDrumsSound(sound: SoundEffectId, intensity: number): void {
     if (!this.context || !this.master || !this.noiseBuffer) {
       return;
     }
 
-    switch (trackId) {
+    switch (sound) {
       case 'kick':
         triggerKick(this.context, this.master, intensity);
         break;
@@ -455,7 +621,107 @@ class WebAudioDrumEngine implements DrumEngine {
       case 'clap':
         triggerClap(this.context, this.master, this.noiseBuffer, intensity);
         break;
+      case 'tom_low':
+        triggerTom(this.context, this.master, 110, 0.18, intensity);
+        break;
+      case 'tom_high':
+        triggerTom(this.context, this.master, 220, 0.14, intensity);
+        break;
+      case 'rim':
+        triggerRim(this.context, this.master, intensity);
+        break;
+      case 'keyboard':
+        triggerKeyboard(this.context, this.master, intensity * 0.9);
+        break;
     }
+  }
+
+  private triggerElectroSound(sound: SoundEffectId, intensity: number): void {
+    if (!this.context || !this.master || !this.noiseBuffer) {
+      return;
+    }
+
+    switch (sound) {
+      case 'kick':
+        triggerKick(this.context, this.master, intensity);
+        break;
+      case 'snare':
+        triggerSnare(this.context, this.master, this.noiseBuffer, intensity * 0.9);
+        break;
+      case 'hat_closed':
+        triggerTone(this.context, this.master, 920, 0.06, intensity * 0.8, 'square');
+        break;
+      case 'hat_open':
+        triggerTone(this.context, this.master, 760, 0.16, intensity * 0.75, 'square');
+        break;
+      case 'clap':
+        triggerTone(this.context, this.master, 280, 0.12, intensity * 0.85, 'triangle');
+        break;
+      case 'tom_low':
+        triggerTone(this.context, this.master, 160, 0.18, intensity * 0.8, 'sawtooth');
+        break;
+      case 'tom_high':
+        triggerTone(this.context, this.master, 320, 0.1, intensity * 0.75, 'square');
+        break;
+      case 'rim':
+        triggerTone(this.context, this.master, 1800, 0.03, intensity * 0.65, 'square');
+        break;
+      case 'keyboard':
+        triggerChord(this.context, this.master, 293.66, intensity * 0.85);
+        break;
+    }
+  }
+
+  private triggerMelodicSound(sound: SoundEffectId, intensity: number): void {
+    if (!this.context || !this.master) {
+      return;
+    }
+
+    switch (sound) {
+      case 'kick':
+        triggerTone(this.context, this.master, 55, 0.22, intensity, 'sine');
+        break;
+      case 'snare':
+        triggerChord(this.context, this.master, 220, intensity);
+        break;
+      case 'hat_closed':
+        triggerTone(this.context, this.master, 660, 0.08, intensity, 'square');
+        break;
+      case 'hat_open':
+        triggerTone(this.context, this.master, 440, 0.2, intensity, 'triangle');
+        break;
+      case 'clap':
+        triggerTone(this.context, this.master, 330, 0.14, intensity, 'sawtooth');
+        break;
+      case 'tom_low':
+        triggerTone(this.context, this.master, 146.83, 0.2, intensity, 'triangle');
+        break;
+      case 'tom_high':
+        triggerTone(this.context, this.master, 293.66, 0.14, intensity, 'triangle');
+        break;
+      case 'rim':
+        triggerTone(this.context, this.master, 987.77, 0.06, intensity * 0.7, 'square');
+        break;
+      case 'keyboard':
+        triggerKeyboard(this.context, this.master, intensity);
+        break;
+    }
+  }
+
+  private triggerSynth(trackId: TrackId, intensity: number): void {
+    const sound = this.getTrackSound(trackId);
+
+    if (this.soundPreset === 'melodic') {
+      this.triggerMelodicSound(sound, intensity);
+      return;
+    }
+
+    if (this.soundPreset === 'electro') {
+      this.triggerElectroSound(sound, intensity);
+      return;
+    }
+
+    this.triggerDrumsSound(sound, intensity);
   }
 
   triggerTrack(trackId: TrackId, velocity = 100): void {
@@ -470,7 +736,6 @@ class WebAudioDrumEngine implements DrumEngine {
     const intensity = clamp(velocity / 127, 0.12, 1);
     const usedSample = this.triggerSample(trackId, intensity);
     if (!usedSample) {
-      this.outputMode = 'synth';
       this.triggerSynth(trackId, intensity);
     }
   }

@@ -1,16 +1,25 @@
 import { z } from 'zod';
 import { roundSummarySchema, settlementResultSchema } from './game.js';
+import { STEPS_PER_PATTERN_V1 } from './pattern.js';
 
 export const wsEventSchemas = {
   'room.state.updated': z.object({ roomId: z.string(), currentRound: roundSummarySchema.nullable() }),
   'round.started': z.object({ roomId: z.string(), round: roundSummarySchema }),
   'round.commit.received': z.object({ roomId: z.string(), roundId: z.string() }),
-  'round.prediction.accepted': z.object({ roomId: z.string(), roundId: z.string(), predictionCount: z.number().int() }),
+  'round.prediction.accepted': z.object({
+    roomId: z.string(),
+    roundId: z.string(),
+    predictionCount: z.number().int(),
+    totalStakedUsdc: z.number().int().nonnegative().optional(),
+  }),
   'round.locked': z.object({ roomId: z.string(), roundId: z.string() }),
   'round.revealed': z.object({ roomId: z.string(), roundId: z.string(), commitVerified: z.boolean() }),
   'round.settled': z.object({ roomId: z.string(), roundId: z.string(), settlement: settlementResultSchema }),
   'leaderboard.updated': z.object({ roomId: z.string(), roundId: z.string(), leaderboard: settlementResultSchema.shape.leaderboard }),
-  'playhead.tick': z.object({ roomId: z.string(), stepIndex: z.number().int().min(0).max(15) }),
+  'playhead.tick': z.object({
+    roomId: z.string(),
+    stepIndex: z.number().int().min(0).max(STEPS_PER_PATTERN_V1 - 1),
+  }),
 } as const;
 
 export const wsEventEnvelopeSchema = z.discriminatedUnion('type', [
