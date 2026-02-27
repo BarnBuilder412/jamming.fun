@@ -69,6 +69,16 @@ export async function createRuntimeServices(config: AppConfig, logger: FastifyBa
             ...(config.integrations.magicblock.soarAchievementPubkey
               ? { soarAchievementPubkey: config.integrations.magicblock.soarAchievementPubkey }
               : {}),
+            contractProgramEnabled: config.featureFlags.enableContractProgram,
+            ...(config.integrations.magicblock.contractProgramId
+              ? { contractProgramId: config.integrations.magicblock.contractProgramId }
+              : {}),
+            ...(config.integrations.magicblock.contractQuoteMint
+              ? { contractQuoteMint: config.integrations.magicblock.contractQuoteMint }
+              : {}),
+            ...(config.integrations.magicblock.contractRewardMint
+              ? { contractRewardMint: config.integrations.magicblock.contractRewardMint }
+              : {}),
           },
           logger,
         ),

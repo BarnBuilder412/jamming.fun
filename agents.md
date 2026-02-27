@@ -25,7 +25,7 @@ jamming.fun/
 │   ├── solana
 │   └── ui
 ├── programs/
-│   └── jamming_prediction/   Anchor contract scaffold (in progress)
+│   └── jamming_prediction/   Anchor contract (core flow implemented)
 └── infra/
 ```
 
@@ -65,6 +65,20 @@ jamming.fun/
 - Health and integration status endpoints are exposed.
 - Blinks action routes implemented (`join/predict/claim`).
 - SOAR setup utility script added: `pnpm --filter @jamming/integrations run setup-soar`.
+- Contract-program API feature flag added: `ENABLE_CONTRACT_PROGRAM`.
+- Contract-backed API paths added:
+  - `POST /api/v1/rooms/:roomId/rounds/:roundId/rewards/claim-contract`
+  - `POST /api/v1/rooms/:roomId/liquidity/deploy`
+
+### Program Build Status
+
+- `programs/jamming_prediction` compiles successfully with `cargo check`.
+- Recent compile blockers were fixed:
+  - signer seed lifetime issues in CPI helpers (`E0716`)
+  - mutable/immutable borrow conflict in `settle_round` (`E0502`)
+- `unexpected_cfgs` macro noise is suppressed at crate root for cleaner output.
+- One non-blocking warning remains from Anchor macro internals:
+  - deprecated `AccountInfo::realloc` warning triggered via `#[program]`.
 
 ## Changes Integrated from `origin/magicblock`
 
@@ -85,19 +99,28 @@ Integrated from commit `107f920` (excluding old branch `agents.md` content):
 
 ### 1) On-chain Contract Completion (Highest Priority)
 
-`programs/jamming_prediction` is scaffold-level.
+`programs/jamming_prediction` now includes:
+
+- USDC split transfer CPI in `place_prediction`.
+- Per-position settle instruction (`settle_position`) with winner vault payouts.
+- On-chain reveal verification in `reveal_round` (`hash(domain || reveal || salt) == commit_hash`).
+- On-chain correctness derivation in `settle_position` from revealed outcome bitmap (no trusted `is_correct` input).
+- Round finalization with low-liquidity threshold fallback (50% to artist pending, 50% rollover).
+- Claim instructions for artist pending and platform fee vaults.
+- Protocol admin config update + pause toggle.
+- Delegated/session prediction path with protocol-configured signer + spend cap.
+- Reward-token claim path and liquidity deployment hook.
+- Modularized contract layout (`constants.rs`, `error.rs`, `state.rs`, `params.rs`, `contexts.rs`, `helpers.rs`, `events.rs`, `instructions/`).
+
 Remaining critical work:
 
-- USDC vault ATA creation + transfer CPI in `place_prediction`.
-- Session/delegated signer + spend cap validation.
-- Full settle logic on-chain (winners, payouts, reward accounting).
-- Claim instructions (user + artist + protocol routing).
-- End-to-end Anchor tests for all flows and edge cases.
+- Broader end-to-end Anchor tests for economic and failure edge cases.
+- End-to-end execution against real on-chain program IDs (API currently routes through adapter-backed contract flow/fallback).
 
 ### 2) True Signless UX
 
-- Current flow still relies on wallet-driven transaction paths.
-- Need session-key/sponsored transaction design finalized and wired.
+- Delegated/session signer checks and spend-cap validation are now in contract scope.
+- Remaining work is client/session lifecycle hardening (issuance, refresh/revoke, fallback paths).
 
 ### 3) Integration Hardening
 
@@ -107,16 +130,17 @@ Remaining critical work:
 
 ### 4) Liquidity/Bonding-Curve Execution Layer
 
-- Economics are implemented in backend settlement math.
-- On-chain liquidity/pool/bonding-curve execution is not completed in contract path.
+- Liquidity deployment hook from contract settlement is now implemented.
+- Remaining work is deployment orchestration + idempotency/monitoring around external pool execution.
 
 ## Current Execution Backlog (Ordered)
 
-1. Finish Anchor contract transfer + settle + claim instructions.
-2. Add comprehensive contract tests (happy path + invalid reveal + all-wrong + low-volume).
-3. Route API to contract-backed settlement/claim path under feature flag.
-4. Complete signless/session wallet flow (Privy or chosen sponsor model).
-5. Run full demo validation checklist and freeze V1.
+1. Expand Anchor tests (happy path + invalid reveal + all-wrong + low-volume + threshold fallback + delegated/session checks + claim/deploy paths).
+2. Run security-focused test pass on modular program paths (authority checks, replay/double-claim resistance, arithmetic edges).
+3. Connect adapter-backed contract routes to real deployed program IDs + transaction builders (remove fallback-only behavior).
+4. Harden signless/session lifecycle in client/integration layer (sponsor failures, expiry, revoke, retries).
+5. Validate integration runbooks (MagicBlock/Audius/Blinks/SOAR) in clean env and document degraded modes.
+6. Run full demo checklist and freeze V1.
 
 ## Operational Commands
 

@@ -7,6 +7,7 @@ const envSchema = z.object({
   ENABLE_MAGICBLOCK: z.string().optional().default('true'),
   ENABLE_AUDIOUS: z.string().optional().default('true'),
   ENABLE_BLINKS: z.string().optional().default('true'),
+  ENABLE_CONTRACT_PROGRAM: z.string().optional().default('true'),
   SOLANA_CLUSTER: z.enum(['devnet', 'mainnet-beta']).default('devnet'),
   SOLANA_RPC_URL: z.string().url().optional(),
   AUDIOUS_APP_NAME: z.string().default('jamming.fun'),
@@ -19,6 +20,9 @@ const envSchema = z.object({
   MAGICBLOCK_SOAR_GAME_PUBKEY: z.string().optional(),
   MAGICBLOCK_SOAR_LEADERBOARD_PUBKEY: z.string().optional(),
   MAGICBLOCK_SOAR_ACHIEVEMENT_PUBKEY: z.string().optional(),
+  CONTRACT_PROGRAM_ID: z.string().optional(),
+  CONTRACT_QUOTE_MINT: z.string().optional(),
+  CONTRACT_REWARD_MINT: z.string().optional(),
   BLINKS_SOLANA_RPC_URL: z.string().url().optional(),
 });
 
@@ -44,6 +48,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       enableMagicBlock: toBooleanFlag(parsed.ENABLE_MAGICBLOCK),
       enableAudius: toBooleanFlag(parsed.ENABLE_AUDIOUS),
       enableBlinks: toBooleanFlag(parsed.ENABLE_BLINKS),
+      enableContractProgram: toBooleanFlag(parsed.ENABLE_CONTRACT_PROGRAM),
     },
     solanaCluster: parsed.SOLANA_CLUSTER,
     solanaRpcUrl,
@@ -55,6 +60,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         soarGamePubkey: parsed.MAGICBLOCK_SOAR_GAME_PUBKEY,
         soarLeaderboardPubkey: parsed.MAGICBLOCK_SOAR_LEADERBOARD_PUBKEY,
         soarAchievementPubkey: parsed.MAGICBLOCK_SOAR_ACHIEVEMENT_PUBKEY,
+        contractProgramId: parsed.CONTRACT_PROGRAM_ID,
+        contractQuoteMint: parsed.CONTRACT_QUOTE_MINT,
+        contractRewardMint: parsed.CONTRACT_REWARD_MINT,
       },
       audius: {
         apiKey: parsed.AUDIOUS_API_KEY,

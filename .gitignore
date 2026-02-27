@@ -11,3 +11,5 @@ coverage
 *.log
 pnpm-lock.yaml.bak
 apps/api/generated
+target
+**/target

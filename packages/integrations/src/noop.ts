@@ -86,6 +86,24 @@ export function createNoopMagicBlockAdapter(flags: IntegrationFlags): MagicBlock
       lastError = undefined;
       return Promise.resolve({ ok: true, reference: lastReference });
     },
+    claimRewardToken(input) {
+      if (!flags.enableMagicBlock || !flags.enableContractProgram) {
+        lastError = 'Contract program feature flag disabled';
+        return Promise.resolve({ ok: false });
+      }
+      lastReference = `mock:contract:claim-reward-token:${input.roomId}:${input.roundId}:${input.userWallet}`;
+      lastError = undefined;
+      return Promise.resolve({ ok: true, reference: lastReference });
+    },
+    deployLiquidityReserve(input) {
+      if (!flags.enableMagicBlock || !flags.enableContractProgram) {
+        lastError = 'Contract program feature flag disabled';
+        return Promise.resolve({ ok: false });
+      }
+      lastReference = `mock:contract:deploy-liquidity:${input.roomId}:${Math.trunc(input.amountUsdc)}`;
+      lastError = undefined;
+      return Promise.resolve({ ok: true, reference: lastReference });
+    },
   };
 }
 

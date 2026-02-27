@@ -68,6 +68,27 @@ export const revealResponseSchema = z.object({
 });
 export const settleResponseSchema = z.object({ settlement: settlementResultSchema });
 export const resultsResponseSchema = z.object({ settlement: settlementResultSchema });
+export const contractRewardClaimRequestSchema = z.object({
+  userWallet: z.string().min(20),
+});
+export const contractRewardClaimResponseSchema = z.object({
+  ok: z.boolean(),
+  result: z.object({
+    ok: z.boolean(),
+    reference: z.string().optional(),
+  }),
+});
+export const contractLiquidityDeployRequestSchema = z.object({
+  amountUsdc: z.number().int().positive(),
+  destinationTokenAccount: z.string().min(20).optional(),
+});
+export const contractLiquidityDeployResponseSchema = z.object({
+  ok: z.boolean(),
+  result: z.object({
+    ok: z.boolean(),
+    reference: z.string().optional(),
+  }),
+});
 
 export const integrationStatusResponseSchema = z.object({
   integrations: z.record(
@@ -98,4 +119,8 @@ export type RevealRequest = z.infer<typeof revealRequestSchema>;
 export type RevealResponse = z.infer<typeof revealResponseSchema>;
 export type SettleResponse = z.infer<typeof settleResponseSchema>;
 export type ResultsResponse = z.infer<typeof resultsResponseSchema>;
+export type ContractRewardClaimRequest = z.infer<typeof contractRewardClaimRequestSchema>;
+export type ContractRewardClaimResponse = z.infer<typeof contractRewardClaimResponseSchema>;
+export type ContractLiquidityDeployRequest = z.infer<typeof contractLiquidityDeployRequestSchema>;
+export type ContractLiquidityDeployResponse = z.infer<typeof contractLiquidityDeployResponseSchema>;
 export type IntegrationStatusResponse = z.infer<typeof integrationStatusResponseSchema>;

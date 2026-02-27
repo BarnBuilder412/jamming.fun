@@ -1,6 +1,9 @@
 import type {
   CommitRequest,
   CommitResponse,
+  ContractLiquidityDeployRequest,
+  ContractLiquidityDeployResponse,
+  ContractRewardClaimResponse,
   CreateRoomRequest,
   IntegrationStatusResponse,
   PredictionBatchRequest,
@@ -137,13 +140,16 @@ export const apiClient = {
     return requestAbsoluteJson<Record<string, unknown>>(url.toString());
   },
   claimReward(roomId: string, roundId: string, userWallet: string) {
-    return requestAbsoluteJson<{ ok: boolean; result: { ok: boolean; reference?: string } }>(
-      `${apiRootUrl()}/actions/claim`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ roomId, roundId, userWallet }),
-      },
-    );
+    return requestJson<ContractRewardClaimResponse>(`/rooms/${roomId}/rounds/${roundId}/rewards/claim-contract`, {
+      method: 'POST',
+      body: JSON.stringify({ userWallet }),
+    });
+  },
+  deployLiquidityReserve(roomId: string, input: ContractLiquidityDeployRequest) {
+    return requestJson<ContractLiquidityDeployResponse>(`/rooms/${roomId}/liquidity/deploy`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   },
   integrationStatus() {
     return requestJson<IntegrationStatusResponse>('/integrations/status');

@@ -17,6 +17,7 @@ export type IntegrationFlags = {
   enableMagicBlock: boolean;
   enableAudius: boolean;
   enableBlinks: boolean;
+  enableContractProgram: boolean;
 };
 
 export type MagicBlockSettlementRecord = {
@@ -31,10 +32,24 @@ export type MagicBlockClaimRequest = {
   userWallet: string;
 };
 
+export type MagicBlockRewardTokenClaimRequest = {
+  roomId: string;
+  roundId: string;
+  userWallet: string;
+};
+
+export type MagicBlockLiquidityDeployRequest = {
+  roomId: string;
+  amountUsdc: number;
+  destinationTokenAccount?: string;
+};
+
 export interface MagicBlockAdapter {
   getStatus(): IntegrationStatus;
   recordRoundSettlement(input: MagicBlockSettlementRecord): Promise<{ ok: boolean; reference?: string }>;
   claimReward(input: MagicBlockClaimRequest): Promise<{ ok: boolean; reference?: string }>;
+  claimRewardToken(input: MagicBlockRewardTokenClaimRequest): Promise<{ ok: boolean; reference?: string }>;
+  deployLiquidityReserve(input: MagicBlockLiquidityDeployRequest): Promise<{ ok: boolean; reference?: string }>;
 }
 
 export interface AudiusAdapter {
@@ -83,12 +98,16 @@ export interface IntegrationLogger {
 
 export type MagicBlockAdapterConfig = {
   enabled: boolean;
+  contractProgramEnabled?: boolean;
   solanaRpcUrl: string;
   cluster: 'devnet' | 'mainnet-beta';
   authorityPrivateKey?: string;
   soarGamePubkey?: string;
   soarLeaderboardPubkey?: string;
   soarAchievementPubkey?: string;
+  contractProgramId?: string;
+  contractQuoteMint?: string;
+  contractRewardMint?: string;
 };
 
 export type AudiusAdapterConfig = {

@@ -33,7 +33,7 @@ export async function buildApp(options: BuildAppOptions): Promise<{ app: Fastify
   await app.register(websocket);
 
   registerHealthRoutes(app, options.config, services);
-  registerApiRoutes(app, services);
+  registerApiRoutes(app, services, options.config);
   registerActionRoutes(app, services);
 
   app.get('/ws', { websocket: true }, (socket) => {

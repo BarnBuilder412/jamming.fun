@@ -2,6 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   commitRequestSchema,
+  contractLiquidityDeployRequestSchema,
+  contractLiquidityDeployResponseSchema,
+  contractRewardClaimRequestSchema,
+  contractRewardClaimResponseSchema,
   createRoomRequestSchema,
   integrationStatusResponseSchema,
   lockResponseSchema,
@@ -19,6 +23,7 @@ import {
 } from '@jamming/shared-types';
 import { parseOrThrow, sendError } from '../lib/http.js';
 import type { RuntimeServices } from '../services/runtime.js';
+import type { AppConfig } from '../config.js';
 
 const roomParamsSchema = z.object({ roomId: z.string().min(1) });
 const roundParamsSchema = z.object({ roomId: z.string().min(1), roundId: z.string().min(1) });
@@ -28,7 +33,7 @@ function emitRoomState(app: FastifyInstance, services: RuntimeServices, roomId: 
   services.roomHub.emit(roomId, 'room.state.updated', { roomId, currentRound });
 }
 
-export function registerApiRoutes(app: FastifyInstance, services: RuntimeServices): void {
+export function registerApiRoutes(app: FastifyInstance, services: RuntimeServices, config: AppConfig): void {
   app.post('/api/v1/rooms', async (request, reply) => {
     try {
       const body = parseOrThrow(createRoomRequestSchema, request.body);
@@ -278,6 +283,68 @@ export function registerApiRoutes(app: FastifyInstance, services: RuntimeService
       });
 
       return reply.send(settleResponseSchema.parse({ settlement }));
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post('/api/v1/rooms/:roomId/rounds/:roundId/rewards/claim-contract', async (request, reply) => {
+    try {
+      if (!config.featureFlags.enableContractProgram) {
+        return reply.status(409).send({ error: 'Contract program flow is disabled by feature flag' });
+      }
+      const params = parseOrThrow(roundParamsSchema, request.params);
+      const body = parseOrThrow(contractRewardClaimRequestSchema, request.body);
+      const result = await services.integrations.magicBlock.claimRewardToken({
+        roomId: params.roomId,
+        roundId: params.roundId,
+        userWallet: body.userWallet,
+      });
+
+      const settlement = services.store.setSettlementIntegrations(params.roomId, params.roundId, {
+        ...(result.reference ? { contractRewardClaimReference: result.reference } : {}),
+      });
+      void settlement;
+
+      return reply.send(
+        contractRewardClaimResponseSchema.parse({
+          ok: result.ok,
+          result,
+        }),
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post('/api/v1/rooms/:roomId/liquidity/deploy', async (request, reply) => {
+    try {
+      if (!config.featureFlags.enableContractProgram) {
+        return reply.status(409).send({ error: 'Contract program flow is disabled by feature flag' });
+      }
+      const params = parseOrThrow(roomParamsSchema, request.params);
+      const body = parseOrThrow(contractLiquidityDeployRequestSchema, request.body);
+      const result = await services.integrations.magicBlock.deployLiquidityReserve({
+        roomId: params.roomId,
+        amountUsdc: body.amountUsdc,
+        ...(body.destinationTokenAccount
+          ? { destinationTokenAccount: body.destinationTokenAccount }
+          : {}),
+      });
+
+      const currentRound = services.store.getCurrentRoundSummary(params.roomId);
+      if (currentRound && currentRound.phase === 'settled') {
+        services.store.setSettlementIntegrations(params.roomId, currentRound.id, {
+          ...(result.reference ? { contractLiquidityDeployReference: result.reference } : {}),
+        });
+      }
+
+      return reply.send(
+        contractLiquidityDeployResponseSchema.parse({
+          ok: result.ok,
+          result,
+        }),
+      );
     } catch (error) {
       return sendError(reply, error);
     }

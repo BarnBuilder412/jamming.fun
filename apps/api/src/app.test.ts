@@ -12,6 +12,7 @@ describe('api app', () => {
         NODE_ENV: 'test',
         PORT: '3001',
         DATABASE_URL: 'postgresql://postgres:postgres@localhost:6543/does_not_exist',
+        ENABLE_CONTRACT_PROGRAM: 'true',
       }),
     });
   });
@@ -104,6 +105,14 @@ describe('api app', () => {
     });
     expect(settle.statusCode).toBe(200);
     expect(settle.json().settlement.winningPredictions).toBe(1);
+
+    const contractClaim = await appPromise.app.inject({
+      method: 'POST',
+      url: `/api/v1/rooms/${room.id}/rounds/${round.id}/rewards/claim-contract`,
+      payload: { userWallet: 'wallet_user_12345678901234567890' },
+    });
+    expect(contractClaim.statusCode).toBe(200);
+    expect(contractClaim.json().ok).toBe(true);
   });
 
   it('serves Solana Action GET and OPTIONS headers for Blink endpoints', async () => {

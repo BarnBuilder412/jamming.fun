@@ -8,6 +8,8 @@ import type {
   MagicBlockAdapter,
   MagicBlockAdapterConfig,
   MagicBlockClaimRequest,
+  MagicBlockLiquidityDeployRequest,
+  MagicBlockRewardTokenClaimRequest,
   MagicBlockSettlementRecord,
 } from './types.js';
 
@@ -84,6 +86,8 @@ export function createMagicBlockSoarAdapter(config: MagicBlockAdapterConfig, log
       config.solanaRpcUrl &&
       config.cluster,
   );
+  const contractProgramEnabled = Boolean(config.contractProgramEnabled);
+  const hasContractConfig = Boolean(config.contractProgramId && config.contractQuoteMint && config.contractRewardMint);
 
   const getStatus = (): IntegrationStatus => {
     if (!config.enabled) {
@@ -101,13 +105,26 @@ export function createMagicBlockSoarAdapter(config: MagicBlockAdapterConfig, log
       );
     }
 
+    if (contractProgramEnabled && !hasContractConfig) {
+      return createStatus(
+        config,
+        'degraded',
+        false,
+        'Contract program feature enabled but CONTRACT_PROGRAM_ID/CONTRACT_QUOTE_MINT/CONTRACT_REWARD_MINT missing',
+        lastReference,
+        lastError,
+      );
+    }
+
     return createStatus(
       config,
       'real',
       true,
-      config.soarAchievementPubkey
-        ? 'SOAR settlement + FT claim path configured'
-        : 'SOAR settlement configured; claim falls back unless achievement pubkey is set',
+      contractProgramEnabled
+        ? 'SOAR + contract flow configured'
+        : config.soarAchievementPubkey
+          ? 'SOAR settlement + FT claim path configured'
+          : 'SOAR settlement configured; claim falls back unless achievement pubkey is set',
       lastReference,
       lastError,
     );
@@ -256,9 +273,41 @@ export function createMagicBlockSoarAdapter(config: MagicBlockAdapterConfig, log
     }
   };
 
+  const claimRewardToken = async (input: MagicBlockRewardTokenClaimRequest) => {
+    if (!config.enabled) {
+      lastError = 'Feature flag disabled';
+      return { ok: false };
+    }
+    if (contractProgramEnabled && !hasContractConfig) {
+      lastError = 'Contract program is enabled but config is incomplete';
+      return { ok: false, reference: `contract:claim-reward-token:config-missing:${input.roundId}` };
+    }
+    return recordFallback(
+      `contract:claim-reward-token:${input.roomId}:${input.roundId}:${input.userWallet}`,
+      'Contract reward-token claim path acknowledged (adapter fallback)',
+    );
+  };
+
+  const deployLiquidityReserve = async (input: MagicBlockLiquidityDeployRequest) => {
+    if (!config.enabled) {
+      lastError = 'Feature flag disabled';
+      return { ok: false };
+    }
+    if (contractProgramEnabled && !hasContractConfig) {
+      lastError = 'Contract program is enabled but config is incomplete';
+      return { ok: false, reference: `contract:deploy-liquidity:config-missing:${input.roomId}` };
+    }
+    return recordFallback(
+      `contract:deploy-liquidity:${input.roomId}:${Math.trunc(input.amountUsdc)}`,
+      'Contract liquidity deploy path acknowledged (adapter fallback)',
+    );
+  };
+
   return {
     getStatus,
     recordRoundSettlement,
     claimReward,
+    claimRewardToken,
+    deployLiquidityReserve,
   };
 }

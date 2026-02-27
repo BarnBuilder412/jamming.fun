@@ -96,6 +96,8 @@ export const settlementIntegrationSchema = z
   .object({
     magicBlockSettlementReference: z.string().optional(),
     audiusSessionReference: z.string().optional(),
+    contractRewardClaimReference: z.string().optional(),
+    contractLiquidityDeployReference: z.string().optional(),
     settledAtIso: z.string().optional(),
   })
   .optional();
